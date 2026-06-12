@@ -1,0 +1,346 @@
+{
+  "id": "lumen-2026-seoul",
+  "title": "LUMEN LIVE: GLASS HORIZON",
+  "subtitle": "Ray-Ban Display AR Companion official show package",
+  "partnerBrief": {
+    "promoter": "LUMEN Live / Concert Promoter",
+    "venue": "KSPO Dome",
+    "showDate": "2026.09.18",
+    "dataStatus": "Setlist, fan chant, translation, interaction events and venue data synced"
+  },
+  "venueInfo": {
+    "name": "KSPO Dome",
+    "gate": "Gate 2-1",
+    "seat": "Floor B / Row 12 / Seat 08",
+    "nearestExit": "North exit",
+    "merchBooth": "1F east MD booth"
+  },
+  "ticketPolicy": {
+    "requiresCheckIn": true,
+    "provider": "partner-ticket-provider",
+    "ticketId": "RB-AR-0918-1208",
+    "holderName": "Guest",
+    "checkedIn": true
+  },
+  "tracks": [
+    {
+      "title": "Neon Signal",
+      "artist": "LUMEN",
+      "durationSeconds": 150,
+      "cues": [
+        {
+          "atSecond": 0,
+          "titleKo": "입장 조명",
+          "titleEn": "Entrance light",
+          "hudMessageKo": "시야 하단에 입장 색상 표시",
+          "hudMessageEn": "Entrance color appears at the lower edge",
+          "placement": "PeripheralPulse",
+          "effect": "EdgePulse",
+          "durationMillis": 3000
+        },
+        {
+          "atSecond": 28,
+          "titleKo": "응원 콜",
+          "titleEn": "Fan chant",
+          "hudMessageKo": "LUMEN 콜 3초 전",
+          "hudMessageEn": "LUMEN chant in 3 seconds",
+          "placement": "RightCorner",
+          "effect": "Countdown",
+          "durationMillis": 3000
+        },
+        {
+          "atSecond": 72,
+          "titleKo": "떼창 가사",
+          "titleEn": "Sing-along lyric",
+          "hudMessageKo": "후렴 첫 줄만 짧게 표시",
+          "hudMessageEn": "Show only the first chorus line",
+          "placement": "LowerEdge",
+          "effect": "Caption",
+          "durationMillis": 4000
+        },
+        {
+          "atSecond": 118,
+          "titleKo": "앵콜 유도",
+          "titleEn": "Encore cue",
+          "hudMessageKo": "환호 에너지를 모아 앵콜 게이지 상승",
+          "hudMessageEn": "Cheer to raise the encore meter",
+          "placement": "RightCorner",
+          "effect": "EnergyMeter",
+          "durationMillis": 3000
+        }
+      ]
+    },
+    {
+      "title": "Glass Horizon",
+      "artist": "LUMEN",
+      "durationSeconds": 132,
+      "cues": [
+        {
+          "atSecond": 0,
+          "titleKo": "멘트 번역",
+          "titleEn": "Talk translation",
+          "hudMessageKo": "아티스트 멘트 요약 표시",
+          "hudMessageEn": "Artist talk summary",
+          "placement": "LowerEdge",
+          "effect": "Caption",
+          "durationMillis": 4000
+        },
+        {
+          "atSecond": 35,
+          "titleKo": "박수 타이밍",
+          "titleEn": "Clap timing",
+          "hudMessageKo": "비트에 맞춘 가장자리 파동",
+          "hudMessageEn": "Edge pulse on the beat",
+          "placement": "PeripheralPulse",
+          "effect": "EdgePulse",
+          "durationMillis": 3000
+        },
+        {
+          "atSecond": 84,
+          "titleKo": "하트 신호",
+          "titleEn": "Heart signal",
+          "hudMessageKo": "손목 제스처로 하트 반응",
+          "hudMessageEn": "Send hearts with wrist gesture",
+          "placement": "RightCorner",
+          "effect": "EnergyMeter",
+          "durationMillis": 3000
+        }
+      ]
+    }
+  ],
+  "interactionEvents": [
+    {
+      "id": "lumen-call-response",
+      "type": "CallAndResponse",
+      "trackIndex": 0,
+      "startSecond": 24,
+      "endSecond": 34,
+      "titleKo": "콜앤리스폰스",
+      "messageKo": "아티스트 콜 뒤에 LUMEN으로 응답",
+      "titleEn": "Call and response",
+      "messageEn": "Answer LUMEN after the artist call",
+      "zone": "All",
+      "ctaLabel": "응답",
+      "reactionSignal": "Cheer",
+      "requiresApproval": true
+    },
+    {
+      "id": "lumen-fan-chant",
+      "type": "FanChant",
+      "trackIndex": 0,
+      "startSecond": 28,
+      "endSecond": 42,
+      "titleKo": "응원법 타이밍",
+      "messageKo": "오른쪽 상단 카운트에 맞춰 응원 콜 시작",
+      "titleEn": "Fan chant timing",
+      "messageEn": "Start the chant on the corner countdown",
+      "zone": "All",
+      "ctaLabel": "응원",
+      "reactionSignal": "Cheer",
+      "requiresApproval": true
+    },
+    {
+      "id": "lumen-lightstick-wave",
+      "type": "LightstickWave",
+      "trackIndex": 0,
+      "startSecond": 48,
+      "endSecond": 68,
+      "titleKo": "응원봉 웨이브",
+      "messageKo": "Floor B부터 2층까지 파란색 웨이브",
+      "titleEn": "Lightstick wave",
+      "messageEn": "Blue wave from Floor B to Level 2",
+      "zone": "Floor B -> Level 2",
+      "ctaLabel": "싱크",
+      "reactionSignal": "Cheer",
+      "requiresApproval": true
+    },
+    {
+      "id": "lumen-singalong",
+      "type": "FanChant",
+      "trackIndex": 0,
+      "startSecond": 70,
+      "endSecond": 88,
+      "titleKo": "후렴 떼창",
+      "messageKo": "첫 줄만 보고 같이 부르기",
+      "titleEn": "Chorus sing-along",
+      "messageEn": "Sing together from the first lyric cue",
+      "zone": "All",
+      "ctaLabel": "떼창",
+      "reactionSignal": "SingAlong",
+      "requiresApproval": true
+    },
+    {
+      "id": "lumen-photo-countdown",
+      "type": "PhotoCountdown",
+      "trackIndex": 0,
+      "startSecond": 92,
+      "endSecond": 104,
+      "titleKo": "포토 타임",
+      "messageKo": "공식 포토 타임 10초",
+      "titleEn": "Photo time",
+      "messageEn": "Official photo time for 10 seconds",
+      "zone": "All",
+      "ctaLabel": "촬영",
+      "requiresApproval": true
+    },
+    {
+      "id": "lumen-camera-policy",
+      "type": "CameraPolicy",
+      "trackIndex": 0,
+      "startSecond": 105,
+      "endSecond": 116,
+      "titleKo": "촬영 종료",
+      "messageKo": "포토 타임 종료. 이후 촬영 금지",
+      "titleEn": "Camera policy",
+      "messageEn": "Photo time ended. Recording is not allowed",
+      "zone": "All",
+      "ctaLabel": "확인",
+      "requiresApproval": true
+    },
+    {
+      "id": "lumen-encore-gauge",
+      "type": "EncoreGauge",
+      "trackIndex": 0,
+      "startSecond": 118,
+      "endSecond": 145,
+      "titleKo": "앵콜 게이지",
+      "messageKo": "환호와 박수로 앵콜 게이지 채우기",
+      "titleEn": "Encore gauge",
+      "messageEn": "Fill the encore gauge with cheers and claps",
+      "zone": "All",
+      "ctaLabel": "환호",
+      "reactionSignal": "Cheer",
+      "requiresApproval": true
+    },
+    {
+      "id": "lumen-translation",
+      "type": "Translation",
+      "trackIndex": 1,
+      "startSecond": 0,
+      "endSecond": 24,
+      "titleKo": "멘트 번역",
+      "messageKo": "아티스트 멘트 핵심 요약 표시",
+      "titleEn": "Talk translation",
+      "messageEn": "Show the approved artist talk summary",
+      "zone": "All",
+      "ctaLabel": "보기",
+      "requiresApproval": true
+    },
+    {
+      "id": "lumen-setlist-hint",
+      "type": "SetlistHint",
+      "trackIndex": 1,
+      "startSecond": 25,
+      "endSecond": 34,
+      "titleKo": "셋리스트 힌트",
+      "messageKo": "다음 구간은 블루 응원봉 준비",
+      "titleEn": "Setlist hint",
+      "messageEn": "Blue lightsticks for the next section",
+      "zone": "All",
+      "ctaLabel": "준비",
+      "requiresApproval": true
+    },
+    {
+      "id": "lumen-fan-mission",
+      "type": "FanMission",
+      "trackIndex": 1,
+      "startSecond": 82,
+      "endSecond": 106,
+      "titleKo": "팬 미션",
+      "messageKo": "후렴에서 하트 3번 보내기",
+      "titleEn": "Fan mission",
+      "messageEn": "Send 3 hearts during the chorus",
+      "zone": "All",
+      "ctaLabel": "하트",
+      "reactionSignal": "Heart",
+      "requiresApproval": true
+    },
+    {
+      "id": "lumen-merch-booth",
+      "type": "MerchBooth",
+      "trackIndex": 1,
+      "startSecond": 108,
+      "endSecond": 118,
+      "titleKo": "MD 부스 안내",
+      "messageKo": "동측 MD 부스 포토카드 줄 분리 운영",
+      "titleEn": "Merch booth",
+      "messageEn": "Photo card line is separated at the east booth",
+      "zone": "1F east",
+      "ctaLabel": "확인",
+      "requiresApproval": true
+    },
+    {
+      "id": "lumen-surprise",
+      "type": "Surprise",
+      "trackIndex": 1,
+      "startSecond": 119,
+      "endSecond": 126,
+      "titleKo": "서프라이즈 이벤트",
+      "messageKo": "마지막 인사 때 응원봉 화이트",
+      "titleEn": "Surprise event",
+      "messageEn": "White lightsticks for the final greeting",
+      "zone": "All",
+      "ctaLabel": "참여",
+      "reactionSignal": "Cheer",
+      "requiresApproval": true
+    },
+    {
+      "id": "lumen-exit-flow",
+      "type": "ExitFlow",
+      "trackIndex": 1,
+      "startSecond": 127,
+      "endSecond": 131,
+      "titleKo": "퇴장 동선",
+      "messageKo": "Floor B는 북2문 방향으로 순차 이동",
+      "titleEn": "Exit flow",
+      "messageEn": "Floor B exits toward North Gate 2",
+      "zone": "Floor B",
+      "ctaLabel": "동선",
+      "requiresApproval": true
+    }
+  ],
+  "partnerAssets": [
+    {
+      "name": "Setlist timeline",
+      "detail": "Song start time and cue marker package",
+      "status": "Confirmed"
+    },
+    {
+      "name": "Fan chant package",
+      "detail": "Call-and-response, sing-along sections, lightstick wave and clap timing",
+      "status": "Confirmed"
+    },
+    {
+      "name": "Interaction event package",
+      "detail": "Photo time, fan mission, encore gauge, exit flow and merch guidance",
+      "status": "Confirmed"
+    },
+    {
+      "name": "Capture policy",
+      "detail": "Recording is restricted during unreleased sections",
+      "status": "NeedsReview"
+    }
+  ],
+  "operationsChecklist": [
+    {
+      "title": "Final setlist sync",
+      "owner": "Promoter",
+      "status": "Confirmed"
+    },
+    {
+      "title": "Interaction event approval",
+      "owner": "Stage direction",
+      "status": "Confirmed"
+    },
+    {
+      "title": "AR rehearsal",
+      "owner": "Stage direction",
+      "status": "NeedsReview"
+    },
+    {
+      "title": "Capture policy notice",
+      "owner": "Venue operations",
+      "status": "Scheduled"
+    }
+  ]
+}

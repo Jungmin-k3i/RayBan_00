@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rayban-concert.example/schemas/concert-event-package.schema.json",
+  "title": "Concert Event Package",
+  "type": "object",
+  "required": ["id", "title", "partnerBrief", "venueInfo", "ticketPolicy", "tracks", "partnerAssets"],
+  "properties": {
+    "id": { "type": "string" },
+    "title": { "type": "string" },
+    "subtitle": { "type": "string" },
+    "partnerBrief": {
+      "type": "object",
+      "required": ["promoter", "venue", "showDate", "dataStatus"],
+      "properties": {
+        "promoter": { "type": "string" },
+        "venue": { "type": "string" },
+        "showDate": { "type": "string" },
+        "dataStatus": { "type": "string" }
+      }
+    },
+    "venueInfo": {
+      "type": "object",
+      "required": ["name", "gate", "seat", "nearestExit", "merchBooth"],
+      "properties": {
+        "name": { "type": "string" },
+        "gate": { "type": "string" },
+        "seat": { "type": "string" },
+        "nearestExit": { "type": "string" },
+        "merchBooth": { "type": "string" }
+      }
+    },
+    "ticketPolicy": {
+      "type": "object",
+      "required": ["requiresCheckIn", "provider"],
+      "properties": {
+        "requiresCheckIn": { "type": "boolean" },
+        "provider": { "type": "string" }
+      }
+    },
+    "tracks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title", "artist", "durationSeconds", "cues"],
+        "properties": {
+          "title": { "type": "string" },
+          "artist": { "type": "string" },
+          "durationSeconds": { "type": "integer", "minimum": 1 },
+          "cues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["atSecond", "titleKo", "titleEn", "hudMessageKo", "hudMessageEn", "placement", "effect"],
+              "properties": {
+                "atSecond": { "type": "integer", "minimum": 0 },
+                "titleKo": { "type": "string" },
+                "titleEn": { "type": "string" },
+                "hudMessageKo": { "type": "string" },
+                "hudMessageEn": { "type": "string" },
+                "placement": { "enum": ["LowerEdge", "RightCorner", "PeripheralPulse"] },
+                "effect": { "enum": ["Caption", "Countdown", "EdgePulse", "EnergyMeter"] },
+                "durationMillis": { "type": "integer", "minimum": 1000, "maximum": 10000 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "partnerAssets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "detail", "status"],
+        "properties": {
+          "name": { "type": "string" },
+          "detail": { "type": "string" },
+          "status": { "enum": ["Confirmed", "NeedsReview", "Scheduled"] }
+        }
+      }
+    }
+  }
+}
