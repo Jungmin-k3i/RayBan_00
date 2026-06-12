@@ -1,6 +1,7 @@
 ﻿package com.k3i.rayban_00
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -168,6 +169,22 @@ class ConcertExperienceTest {
         assertEquals("PhoneMicExperimentalTranslationEngine", translation.engineName)
         assertTrue(translation.fallbackReason?.contains("실제 STT/번역 API") == true)
         assertTrue(translation.confidencePercent in 35..62)
+    }
+
+    @Test
+    fun translationProviderPlanUsesPhoneCloudAndPreparedSubtitleFallback() {
+        val selected = selectedTranslationProviderOptions()
+        val primary = selected.first()
+        val metaAiOption = defaultTranslationProviderOptions.first {
+            it.name == "Meta AI App internal translation"
+        }
+
+        assertEquals("Cloud STT/Translation", primary.name)
+        assertEquals("Android 스마트폰 앱", primary.connectivityOwner)
+        assertTrue(primary.executionPath.contains("클라우드 STT/번역"))
+        assertTrue(selected.any { it.name == "Prepared Subtitle Feed" })
+        assertFalse(metaAiOption.selectedForMvp)
+        assertEquals(TranslationProviderRole.NotSupported, metaAiOption.role)
     }
 
     @Test
@@ -627,16 +644,14 @@ class ConcertExperienceTest {
     }
 
     @Test
-    fun companionAudienceModeHidesOperatorDiagnostics() {
-        val audience = CompanionViewMode.AudienceFocus.panelVisibility()
-        val operator = CompanionViewMode.OperatorDebug.panelVisibility()
+    fun boardAccessRequiresTicketCheckIn() {
+        val checkedInEvent = sampleConcertEvents.first { it.ticket.checkedIn }
+        val lockedEvent = sampleConcertEvents.first { !it.ticket.checkedIn }
 
-        assertEquals(false, audience.showDispatchControls)
-        assertEquals(false, audience.showCueTimeline)
-        assertEquals(false, audience.showInputSimulator)
-        assertTrue(operator.showDispatchControls)
-        assertTrue(operator.showCueTimeline)
-        assertTrue(operator.showInputSimulator)
+        assertTrue(checkedInEvent.boardAccessPolicy().canEnter)
+        assertEquals(BoardAccessDecision.Allowed, checkedInEvent.boardAccessPolicy().decision)
+        assertFalse(lockedEvent.boardAccessPolicy().canEnter)
+        assertEquals(BoardAccessDecision.TicketVerificationRequired, lockedEvent.boardAccessPolicy().decision)
     }
 
     @Test

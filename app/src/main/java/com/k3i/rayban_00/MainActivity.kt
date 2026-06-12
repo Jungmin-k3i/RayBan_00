@@ -13,6 +13,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,8 +34,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -76,15 +77,32 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            RayBan_00Theme(dynamicColor = false) {
-                ConcertExperienceApp()
+            val context = LocalContext.current
+            var appThemeMode by remember { mutableStateOf(loadAppThemeMode(context)) }
+            val systemDark = isSystemInDarkTheme()
+            val useDarkTheme = when (appThemeMode) {
+                AppThemeMode.System -> systemDark
+                AppThemeMode.Light -> false
+                AppThemeMode.Dark -> true
+            }
+            LaunchedEffect(appThemeMode) {
+                saveAppThemeMode(context, appThemeMode)
+            }
+            RayBan_00Theme(darkTheme = useDarkTheme, dynamicColor = false) {
+                ConcertExperienceApp(
+                    appThemeMode = appThemeMode,
+                    onThemeModeChange = { appThemeMode = it }
+                )
             }
         }
     }
 }
 
 @Composable
-fun ConcertExperienceApp() {
+fun ConcertExperienceApp(
+    appThemeMode: AppThemeMode,
+    onThemeModeChange: (AppThemeMode) -> Unit
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val savedSession = remember { loadConcertSession(context) }
@@ -107,8 +125,6 @@ fun ConcertExperienceApp() {
     var appInForeground by remember { mutableStateOf(true) }
     var companionResumeNoticeVisible by remember { mutableStateOf(false) }
     var glassesDispatchRecords by remember { mutableStateOf(loadGlassesDispatchRecords(context)) }
-    var companionViewMode by remember { mutableStateOf(CompanionViewMode.AudienceFocus) }
-    var safetyAcknowledged by remember { mutableStateOf(false) }
     var settingsReturnScreen by remember { mutableStateOf(AppScreen.Home) }
     val micPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -159,19 +175,20 @@ fun ConcertExperienceApp() {
         )
     }
 
-    val canStartCompanion = concertState.event.ticket.checkedIn && safetyAcknowledged
+    val canStartCompanion = concertState.event.ticket.checkedIn
     val backAction: (() -> Unit)? = when (screen) {
         AppScreen.BoardEventPosts -> ({ screen = AppScreen.Board })
         AppScreen.BoardPostDetail -> ({ screen = AppScreen.BoardEventPosts })
         AppScreen.Settings -> ({ screen = settingsReturnScreen })
         AppScreen.SettingsConcert,
         AppScreen.SettingsLanguage,
+        AppScreen.SettingsAppearance,
         AppScreen.SettingsOperations,
         AppScreen.SettingsTechnical -> ({ screen = AppScreen.Settings })
         else -> null
     }
     Scaffold(
-        containerColor = Color(0xFF101113),
+        containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             ConcertBottomNavigation(
                 currentScreen = screen,
@@ -180,15 +197,25 @@ fun ConcertExperienceApp() {
                 onNavigate = { destination ->
                     when (destination) {
                         AppScreen.Home -> screen = AppScreen.Home
-                        AppScreen.Readiness -> screen = AppScreen.Readiness
+                        AppScreen.Readiness -> screen = AppScreen.Detail
                         AppScreen.Detail -> screen = AppScreen.Detail
-                        AppScreen.Companion -> screen = AppScreen.Companion
-                        AppScreen.Board -> screen = AppScreen.Board
+                        AppScreen.Translation -> screen = AppScreen.Translation
+                        AppScreen.Companion -> screen = if (canStartCompanion) AppScreen.Companion else AppScreen.Detail
+                        AppScreen.Board -> {
+                            if (concertState.event.boardAccessPolicy().canEnter) {
+                                selectedBoardEventId = concertState.event.id
+                                selectedBoardPostId = null
+                                screen = AppScreen.BoardEventPosts
+                            } else {
+                                screen = AppScreen.Board
+                            }
+                        }
                         AppScreen.BoardEventPosts -> screen = AppScreen.Board
                         AppScreen.BoardPostDetail -> screen = AppScreen.Board
-                    AppScreen.Settings -> screen = AppScreen.Settings
-                    AppScreen.SettingsConcert -> screen = AppScreen.SettingsConcert
-                    AppScreen.SettingsLanguage -> screen = AppScreen.SettingsLanguage
+                        AppScreen.Settings -> screen = AppScreen.Settings
+                        AppScreen.SettingsConcert -> screen = AppScreen.SettingsConcert
+                        AppScreen.SettingsLanguage -> screen = AppScreen.SettingsLanguage
+                        AppScreen.SettingsAppearance -> screen = AppScreen.SettingsAppearance
                         AppScreen.SettingsOperations -> screen = AppScreen.SettingsOperations
                         AppScreen.SettingsTechnical -> screen = AppScreen.SettingsTechnical
                     }
@@ -204,14 +231,12 @@ fun ConcertExperienceApp() {
         ) {
             Surface(
                 modifier = Modifier.fillMaxSize(),
-                color = Color(0xFF101113)
+                color = MaterialTheme.colorScheme.background
             ) {
                 when (screen) {
                     AppScreen.Home -> HomeScreen(
                         state = concertState,
                         glassesProfile = glassesProfile,
-                        onOpenReadiness = { screen = AppScreen.Readiness },
-                        onOpenCurrent = { screen = if (canStartCompanion) AppScreen.Companion else AppScreen.Detail },
                         onReaction = { reaction -> concertState = concertState.applyReaction(reaction) },
                         onInteractionEvent = { event -> concertState = concertState.applyInteractionEvent(event) }
                     )
@@ -219,7 +244,6 @@ fun ConcertExperienceApp() {
                     AppScreen.Readiness -> ReadinessScreen(
                         state = concertState,
                         glassesProfile = glassesProfile,
-                        safetyAcknowledged = safetyAcknowledged,
                         language = appLanguage,
                         micPermissionDenied = micPermissionDenied,
                         onOpenDetail = { screen = AppScreen.Detail }
@@ -227,14 +251,17 @@ fun ConcertExperienceApp() {
 
                     AppScreen.Detail -> DetailScreen(
                         state = concertState,
-                        safetyAcknowledged = safetyAcknowledged,
+                        glassesProfile = glassesProfile,
                         language = appLanguage,
-                        onSafetyAcknowledgedChange = { safetyAcknowledged = it },
                         onStart = {
-                            if (concertState.event.ticket.checkedIn && safetyAcknowledged) {
+                            if (concertState.event.ticket.checkedIn) {
                                 screen = AppScreen.Companion
                             }
                         }
+                    )
+
+                    AppScreen.Translation -> TranslationScreen(
+                        state = concertState
                     )
 
                     AppScreen.Companion -> CompanionScreen(
@@ -244,12 +271,8 @@ fun ConcertExperienceApp() {
                         appInForeground = appInForeground,
                         resumeNoticeVisible = companionResumeNoticeVisible,
                         glassesDispatchRecords = glassesDispatchRecords,
-                        viewMode = companionViewMode,
-                        onViewModeChange = { companionViewMode = it },
                         onReaction = { reaction -> concertState = concertState.applyReaction(reaction) },
                         onInteractionEvent = { event -> concertState = concertState.applyInteractionEvent(event) },
-                        onGlassesInput = { action -> concertState = concertState.applyGlassesInput(action) },
-                        onSeekCue = { cueIndex -> concertState = concertState.seekToCue(cueIndex) },
                         onDispatchHud = { instruction ->
                             val updatedRecords = dispatchHudToGlasses(
                                 instruction = instruction,
@@ -278,7 +301,7 @@ fun ConcertExperienceApp() {
                         onFinish = {
                             micRequested = false
                             concertState = concertState.stopAudioEnergy()
-                            screen = AppScreen.Board
+                            screen = AppScreen.Home
                         }
                     )
 
@@ -287,15 +310,17 @@ fun ConcertExperienceApp() {
                         selectedEventId = selectedBoardEventId,
                         language = appLanguage,
                         onOpenEventBoard = { event ->
-                            selectedBoardEventId = event.id
-                            selectedBoardPostId = null
-                            screen = AppScreen.BoardEventPosts
+                            if (event.boardAccessPolicy().canEnter) {
+                                selectedBoardEventId = event.id
+                                selectedBoardPostId = null
+                                screen = AppScreen.BoardEventPosts
+                            }
                         }
                     )
 
                     AppScreen.BoardEventPosts -> {
                         val boardEvent = concertEvents.firstOrNull { it.id == selectedBoardEventId }
-                        if (boardEvent == null) {
+                        if (boardEvent == null || !boardEvent.boardAccessPolicy().canEnter) {
                             screen = AppScreen.Board
                         } else {
                             ConcertBoardScreen(
@@ -320,7 +345,7 @@ fun ConcertExperienceApp() {
                         val boardEvent = concertEvents.firstOrNull { it.id == selectedBoardEventId }
                         val currentEventPosts = boardPostsByEventId[boardEvent?.id].orEmpty()
                         val selectedPost = currentEventPosts.firstOrNull { it.id == selectedBoardPostId }
-                        if (boardEvent == null || selectedPost == null) {
+                        if (boardEvent == null || !boardEvent.boardAccessPolicy().canEnter || selectedPost == null) {
                             screen = AppScreen.Board
                         } else {
                             BoardPostDetailScreen(
@@ -341,10 +366,10 @@ fun ConcertExperienceApp() {
 
                     AppScreen.Settings -> SettingsScreen(
                         language = appLanguage,
+                        themeMode = appThemeMode,
                         onOpenConcert = { screen = AppScreen.SettingsConcert },
                         onOpenLanguage = { screen = AppScreen.SettingsLanguage },
-                        onOpenOperations = { screen = AppScreen.SettingsOperations },
-                        onOpenTechnical = { screen = AppScreen.SettingsTechnical }
+                        onOpenAppearance = { screen = AppScreen.SettingsAppearance }
                     )
 
                     AppScreen.SettingsConcert -> ConcertSettingsScreen(
@@ -353,7 +378,6 @@ fun ConcertExperienceApp() {
                         language = appLanguage,
                         onSelectEvent = { event ->
                             concertState = concertState.selectEvent(event)
-                            safetyAcknowledged = false
                             screen = AppScreen.Detail
                         },
                         onBack = { screen = AppScreen.Settings }
@@ -365,6 +389,13 @@ fun ConcertExperienceApp() {
                         onBack = { screen = AppScreen.Settings }
                     )
 
+                    AppScreen.SettingsAppearance -> AppearanceSettingsScreen(
+                        language = appLanguage,
+                        themeMode = appThemeMode,
+                        onThemeModeChange = onThemeModeChange,
+                        onBack = { screen = AppScreen.Settings }
+                    )
+
                     AppScreen.SettingsOperations -> OperationsSettingsScreen(
                         state = concertState,
                         language = appLanguage,
@@ -372,9 +403,27 @@ fun ConcertExperienceApp() {
                     )
 
                     AppScreen.SettingsTechnical -> TechnicalSettingsScreen(
+                        state = concertState,
                         glassesProfile = glassesProfile,
                         repositoryResult = concertRepositoryResult,
+                        micPermissionDenied = micPermissionDenied,
+                        appInForeground = appInForeground,
                         language = appLanguage,
+                        onToggleMic = {
+                            val hasPermission = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.RECORD_AUDIO
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (micRequested) {
+                                micRequested = false
+                                concertState = concertState.stopAudioEnergy()
+                            } else if (hasPermission) {
+                                micRequested = true
+                                micPermissionDenied = false
+                            } else {
+                                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
+                        },
                         onBack = { screen = AppScreen.Settings }
                     )
                 }
@@ -406,6 +455,7 @@ private fun AppScreen.isSettingsScreen(): Boolean =
     this == AppScreen.Settings ||
         this == AppScreen.SettingsConcert ||
         this == AppScreen.SettingsLanguage ||
+        this == AppScreen.SettingsAppearance ||
         this == AppScreen.SettingsOperations ||
         this == AppScreen.SettingsTechnical
 
@@ -417,8 +467,8 @@ private data class BottomNavItem(
 )
 
 private val bottomNavItems = listOf(
-    BottomNavItem(AppScreen.Readiness, "점검", "○", "●"),
     BottomNavItem(AppScreen.Detail, "준비", "◇", "✦"),
+    BottomNavItem(AppScreen.Translation, "번역", "T", "T"),
     BottomNavItem(AppScreen.Home, "홈", "⌂", "◆"),
     BottomNavItem(AppScreen.Companion, "AR Live", "♡", "♥"),
     BottomNavItem(AppScreen.Board, "게시판", "□", "■")
@@ -482,7 +532,7 @@ private fun ConcertBottomNavigation(
     onNavigate: (AppScreen) -> Unit
 ) {
     Surface(
-        color = Color(0xF2101113),
+        color = MaterialTheme.colorScheme.surface,
         tonalElevation = 6.dp,
         modifier = Modifier.navigationBarsPadding()
     ) {
@@ -494,11 +544,13 @@ private fun ConcertBottomNavigation(
             verticalAlignment = Alignment.CenterVertically
         ) {
             bottomNavItems.forEach { item ->
-                val selected = item.screen == currentScreen
+                val selected = item.screen == currentScreen.bottomNavRoot()
+                val available = item.screen != AppScreen.Companion || canStartCompanion
                 val accent = when (item.screen) {
                     AppScreen.Home -> Color(0xFF62D6C4)
                     AppScreen.Readiness -> Color(0xFFFFD166)
                     AppScreen.Detail -> Color(0xFFE85D75)
+                    AppScreen.Translation -> Color(0xFF8AB4F8)
                     AppScreen.Companion -> Color(0xFF8AB4F8)
                     AppScreen.Board -> Color(0xFFB794F4)
                     AppScreen.BoardEventPosts -> Color(0xFFB794F4)
@@ -506,6 +558,7 @@ private fun ConcertBottomNavigation(
                     AppScreen.Settings -> Color(0xFF9CA3AF)
                     AppScreen.SettingsConcert -> Color(0xFF9CA3AF)
                     AppScreen.SettingsLanguage -> Color(0xFF9CA3AF)
+                    AppScreen.SettingsAppearance -> Color(0xFF9CA3AF)
                     AppScreen.SettingsOperations -> Color(0xFF9CA3AF)
                     AppScreen.SettingsTechnical -> Color(0xFF9CA3AF)
                 }
@@ -513,7 +566,13 @@ private fun ConcertBottomNavigation(
                     modifier = Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(if (selected) accent.copy(alpha = 0.22f) else Color(0xFF1D2027))
+                        .background(
+                            when {
+                                selected -> accent.copy(alpha = 0.22f)
+                                !available -> Color(0xFF171A20)
+                                else -> Color(0xFF1D2027)
+                            }
+                        )
                         .clickable { onNavigate(item.screen) }
                         .padding(vertical = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -521,14 +580,22 @@ private fun ConcertBottomNavigation(
                 ) {
                     Text(
                         if (selected) item.activeIcon else item.icon,
-                        color = if (selected) accent else Color(0xFFE5E7EB),
+                        color = when {
+                            selected -> accent
+                            !available -> Color(0xFF7A828E)
+                            else -> Color(0xFFE5E7EB)
+                        },
                         fontSize = if (selected) 20.sp else 18.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1
                     )
                     Text(
                         item.label(language),
-                        color = if (selected) Color.White else Color(0xFFE5E7EB),
+                        color = when {
+                            selected -> Color.White
+                            !available -> Color(0xFF7A828E)
+                            else -> Color(0xFFE5E7EB)
+                        },
                         fontSize = 10.sp,
                         fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
                         maxLines = 1
@@ -539,6 +606,14 @@ private fun ConcertBottomNavigation(
     }
 }
 
+private fun AppScreen.bottomNavRoot(): AppScreen =
+    when (this) {
+        AppScreen.Readiness -> AppScreen.Detail
+        AppScreen.BoardEventPosts,
+        AppScreen.BoardPostDetail -> AppScreen.Board
+        else -> this
+    }
+
 private fun BottomNavItem.label(language: AppLanguage): String =
     when (language) {
         AppLanguage.Korean -> label
@@ -546,6 +621,7 @@ private fun BottomNavItem.label(language: AppLanguage): String =
             AppScreen.Home -> "Home"
             AppScreen.Readiness -> "Check"
             AppScreen.Detail -> "Prep"
+            AppScreen.Translation -> "Translate"
             AppScreen.Companion -> "AR Live"
             AppScreen.Board -> "Board"
             AppScreen.BoardEventPosts -> "Board"
@@ -553,6 +629,7 @@ private fun BottomNavItem.label(language: AppLanguage): String =
             AppScreen.Settings -> "Settings"
             AppScreen.SettingsConcert -> "Settings"
             AppScreen.SettingsLanguage -> "Settings"
+            AppScreen.SettingsAppearance -> "Settings"
             AppScreen.SettingsOperations -> "Settings"
             AppScreen.SettingsTechnical -> "Settings"
         }
@@ -561,9 +638,8 @@ private fun BottomNavItem.label(language: AppLanguage): String =
 @Composable
 private fun DetailScreen(
     state: ConcertState,
-    safetyAcknowledged: Boolean,
+    glassesProfile: GlassesIntegrationProfile,
     language: AppLanguage,
-    onSafetyAcknowledgedChange: (Boolean) -> Unit,
     onStart: () -> Unit
 ) {
     ScreenFrame {
@@ -576,20 +652,16 @@ private fun DetailScreen(
                 if (language == AppLanguage.Korean) "입장 대기" else "Check-in needed"
             }
         )
+        PrepQuickStatusCard(state = state, glassesProfile = glassesProfile, language = language)
         AudiencePrepSection(
-            state = state,
-            safetyAcknowledged = safetyAcknowledged,
-            onSafetyAcknowledgedChange = onSafetyAcknowledgedChange
+            state = state
         )
         if (!state.event.ticket.checkedIn) {
-            WarningCard("티켓 입장 확인이 필요합니다", "예매처 또는 공연장 체크인이 완료되어야 Companion 모드를 시작할 수 있습니다.")
-        }
-        if (!safetyAcknowledged) {
-            WarningCard("안전 확인이 필요합니다", "마이크 처리 방식과 공연장 정책을 확인해야 Companion 모드를 시작할 수 있습니다.")
+            WarningCard("티켓 입장 확인이 필요합니다", "예매처 또는 공연장 체크인이 완료되어야 AR Live를 사용할 수 있습니다.")
         }
         Button(
             onClick = onStart,
-            enabled = state.event.ticket.checkedIn && safetyAcknowledged,
+            enabled = state.event.ticket.checkedIn,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(8.dp),
             colors = ButtonDefaults.buttonColors(
@@ -599,10 +671,10 @@ private fun DetailScreen(
             )
         ) {
             Text(
-                if (state.event.ticket.checkedIn && safetyAcknowledged) {
-                    if (language == AppLanguage.Korean) "AR Companion 시작" else "Start AR Companion"
+                if (state.event.ticket.checkedIn) {
+                    if (language == AppLanguage.Korean) "AR Live 준비 완료" else "Ready for AR Live"
                 } else {
-                    if (language == AppLanguage.Korean) "필수 확인 후 시작" else "Complete checks to start"
+                    if (language == AppLanguage.Korean) "입장 확인 후 사용" else "Check in to continue"
                 }
             )
         }
@@ -613,7 +685,6 @@ private fun DetailScreen(
 private fun ReadinessScreen(
     state: ConcertState,
     glassesProfile: GlassesIntegrationProfile,
-    safetyAcknowledged: Boolean,
     language: AppLanguage,
     micPermissionDenied: Boolean,
     onOpenDetail: () -> Unit
@@ -622,7 +693,6 @@ private fun ReadinessScreen(
         state = state,
         glassesProfile = glassesProfile,
         language = language,
-        safetyAcknowledged = safetyAcknowledged,
         micPermissionDenied = micPermissionDenied
     )
     ScreenFrame {
@@ -662,7 +732,6 @@ private fun buildReadinessChecks(
     state: ConcertState,
     glassesProfile: GlassesIntegrationProfile,
     language: AppLanguage,
-    safetyAcknowledged: Boolean,
     micPermissionDenied: Boolean
 ): List<ReadinessCheck> {
     val ko = language == AppLanguage.Korean
@@ -675,15 +744,6 @@ private fun buildReadinessChecks(
                 if (ko) "입장 확인이 필요합니다." else "Check-in is required."
             },
             severity = if (state.event.ticket.checkedIn) ReadinessSeverity.Ready else ReadinessSeverity.Blocked
-        ),
-        ReadinessCheck(
-            title = if (ko) "안전 확인" else "Safety",
-            message = if (safetyAcknowledged) {
-                if (ko) "개인정보/공연장 정책 확인 완료" else "Privacy and venue policy confirmed"
-            } else {
-                if (ko) "Companion 시작 전 확인이 필요합니다." else "Confirm before starting Companion."
-            },
-            severity = if (safetyAcknowledged) ReadinessSeverity.Ready else ReadinessSeverity.Blocked
         ),
         ReadinessCheck(
             title = if (ko) "마이크 권한" else "Microphone",
@@ -807,6 +867,58 @@ private fun ReadinessCheckCard(check: ReadinessCheck) {
 }
 
 @Composable
+private fun PrepQuickStatusCard(
+    state: ConcertState,
+    glassesProfile: GlassesIntegrationProfile,
+    language: AppLanguage
+) {
+    val ko = language == AppLanguage.Korean
+    Card(colors = darkCard(), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(if (ko) "입장 전 확인" else "Before the show", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text(if (ko) "공연장에 들어가기 전 필요한 정보만 확인합니다." else "Only the essentials before entering the venue.", color = Color(0xFF9CA3AF), fontSize = 11.sp)
+                }
+                StatusChip(
+                    if (state.event.ticket.checkedIn) {
+                        if (ko) "준비됨" else "Ready"
+                    } else {
+                        if (ko) "확인 필요" else "Check needed"
+                    },
+                    if (state.event.ticket.checkedIn) Color(0xFF62D6C4) else Color(0xFFFFD166)
+                )
+            }
+            VisualStatusRow(
+                icon = "TKT",
+                title = if (ko) "입장 확인" else "Ticket check-in",
+                detail = if (state.event.ticket.checkedIn) {
+                    if (ko) "티켓 확인이 완료되었습니다." else "Your ticket is checked in."
+                } else {
+                    if (ko) "입장 게이트 또는 예매처 확인이 필요합니다." else "Check in at the gate or ticket provider."
+                },
+                status = if (state.event.ticket.checkedIn) "OK" else "WAIT",
+                color = if (state.event.ticket.checkedIn) Color(0xFF62D6C4) else Color(0xFFFFD166)
+            )
+            VisualStatusRow(
+                icon = "SEAT",
+                title = state.event.venueInfo.seat,
+                detail = "${state.event.venueInfo.gate} · ${state.event.venueInfo.nearestExit}",
+                status = if (ko) "좌석" else "Seat",
+                color = Color(0xFF8AB4F8)
+            )
+            VisualStatusRow(
+                icon = "GLS",
+                title = glassesProfile.targetDevice.displayName,
+                detail = if (ko) "표시 가능 여부는 AR Live에서 확인합니다." else "Display availability is checked in AR Live.",
+                status = if (ko) "선택" else "Optional",
+                color = Color(0xFFB794F4)
+            )
+        }
+    }
+}
+
+@Composable
 private fun CompanionScreen(
     state: ConcertState,
     glassesProfile: GlassesIntegrationProfile,
@@ -814,67 +926,334 @@ private fun CompanionScreen(
     appInForeground: Boolean,
     resumeNoticeVisible: Boolean,
     glassesDispatchRecords: List<GlassesDispatchRecord>,
-    viewMode: CompanionViewMode,
-    onViewModeChange: (CompanionViewMode) -> Unit,
     onReaction: (ReactionSignal) -> Unit,
     onInteractionEvent: (ConcertInteractionEvent) -> Unit,
-    onGlassesInput: (GlassesInputAction) -> Unit,
-    onSeekCue: (Int) -> Unit,
     onDispatchHud: (HudRenderInstruction) -> Unit,
     onDismissResumeNotice: () -> Unit,
     onToggleMic: () -> Unit,
     onFinish: () -> Unit
 ) {
-    val panelVisibility = viewMode.panelVisibility()
     ScreenFrame {
-        LiveCompanionTopBar(state = state, viewMode = viewMode)
+        LiveCompanionTopBar(state = state)
         if (resumeNoticeVisible) {
             CompanionResumeNoticeCard(onDismiss = onDismissResumeNotice)
         }
-        StageView(state)
-        LiveTranslationHudCard(state = state)
         CompanionInteractionEventsCard(state = state, onInteractionEvent = onInteractionEvent)
+        StageView(state)
         GlassHudPreview(
             hudState = state.hudState,
             glassesProfile = glassesProfile,
             dispatchRecords = glassesDispatchRecords,
-            showDispatchControls = panelVisibility.showDispatchControls,
+            showDispatchControls = false,
             onDispatchHud = onDispatchHud
         )
-        CompanionModeSelector(
-            selectedMode = viewMode,
-            onModeChange = onViewModeChange
-        )
-        if (panelVisibility.showCueTimeline) {
-            GlassesCueTimelineCard(state = state, onSeekCue = onSeekCue)
-        }
-        if (panelVisibility.showInputSimulator) {
-            GlassesInputSimulatorCard(
-                policy = defaultGlassesInteractionPolicy,
-                onInput = onGlassesInput
-            )
-        }
         OutlinedButton(onClick = onFinish, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Text("AR Live 종료")
+            Text("홈으로 돌아가기")
         }
     }
 }
 
 @Composable
-private fun AudiencePrepSection(
-    state: ConcertState,
-    safetyAcknowledged: Boolean,
-    onSafetyAcknowledgedChange: (Boolean) -> Unit
+private fun TranslationScreen(
+    state: ConcertState
 ) {
+    ScreenFrame {
+        TranslationCommandCard(state = state)
+        AudienceTranslationProblemsCard(state = state)
+        AudienceTranslationLensCard(state = state)
+        TranslationFallbackTipsCard(state = state)
+    }
+}
+
+@Composable
+private fun TranslationCommandCard(state: ConcertState) {
+    val translation = state.liveTranslation
+    Card(colors = darkCard(), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(210.dp)
+                .background(Brush.linearGradient(listOf(Color(0xFF12242A), Color(0xFF241A2E))))
+        ) {
+            Canvas(modifier = Modifier.matchParentSize()) {
+                val center = Offset(size.width * 0.82f, size.height * 0.24f)
+                drawCircle(Color(0xFF62D6C4).copy(alpha = 0.20f), size.minDimension * 0.35f, center)
+                drawCircle(Color(0xFF8AB4F8).copy(alpha = 0.18f), size.minDimension * 0.24f, Offset(size.width * 0.18f, size.height * 0.82f))
+                drawRoundRect(
+                    color = Color.White.copy(alpha = 0.10f),
+                    topLeft = Offset(size.width * 0.54f, size.height * 0.58f),
+                    size = Size(size.width * 0.34f, 9f),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(8f, 8f)
+                )
+                drawRoundRect(
+                    color = Color(0xFF62D6C4).copy(alpha = 0.55f),
+                    topLeft = Offset(size.width * 0.54f, size.height * 0.70f),
+                    size = Size(size.width * 0.24f, 9f),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(8f, 8f)
+                )
+            }
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TranslationGlyph(color = Color(0xFF62D6C4))
+                    StatusChip("공연 중", Color(0xFF62D6C4))
+                }
+                Text("지금 멘트", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    translation.hudSummary,
+                    color = Color(0xFFE5E7EB),
+                    fontSize = 15.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MetricPill("렌즈", "짧게 표시", Color(0xFF62D6C4), Modifier.weight(1f))
+                    MetricPill("긴 멘트", "폰에서 확인", Color(0xFFFFD166), Modifier.weight(1f))
+                    MetricPill("방해", "최소화", Color(0xFF8AB4F8), Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TranslationGlyph(color: Color, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(44.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(color.copy(alpha = 0.18f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Text("T", color = color, fontSize = 24.sp, fontWeight = FontWeight.Black)
+    }
+}
+
+@Composable
+private fun MetricPill(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xCC101113))
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalArrangement = Arrangement.spacedBy(1.dp)
+    ) {
+        Text(label, color = Color(0xFF9CA3AF), fontSize = 10.sp, maxLines = 1)
+        Text(value, color = color, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun AudienceTranslationProblemsCard(state: ConcertState) {
+    Card(colors = darkCard(), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("지금 놓치기 쉬운 부분", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("공연 중 번역은 짧게, 늦으면 의미만 먼저 보여줍니다.", color = Color(0xFF9CA3AF), fontSize = 11.sp)
+                }
+                StatusChip("관객 모드", Color(0xFFFFD166))
+            }
+            AudienceProblemRow(
+                icon = "1",
+                title = "멘트가 길어질 때",
+                detail = "렌즈에는 핵심 의미만 1-2줄로 줄이고, 긴 문장은 스마트폰에서 확인합니다.",
+                color = Color(0xFF62D6C4)
+            )
+            AudienceProblemRow(
+                icon = "2",
+                title = "환호성 때문에 안 들릴 때",
+                detail = "확실하지 않은 문장은 단정적으로 보이지 않게 조심스럽게 표시합니다.",
+                color = Color(0xFFFFD166)
+            )
+            AudienceProblemRow(
+                icon = "3",
+                title = "번역이 늦어질 때",
+                detail = "실시간 번역 대신 준비된 자막이나 다음 큐 안내로 시야를 방해하지 않게 전환합니다.",
+                color = Color(0xFF8AB4F8)
+            )
+        }
+    }
+}
+
+@Composable
+private fun AudienceProblemRow(
+    icon: String,
+    title: String,
+    detail: String,
+    color: Color
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFF171A20))
+            .padding(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(color.copy(alpha = 0.18f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(icon, color = color, fontWeight = FontWeight.Bold)
+        }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            Text(detail, color = Color(0xFFB8BDC7), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun AudienceTranslationLensCard(state: ConcertState) {
+    val translation = state.liveTranslation
+    Card(colors = darkCard(), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("렌즈에 보일 문장", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("무대를 가리지 않도록 짧은 문장만 표시합니다.", color = Color(0xFF9CA3AF), fontSize = 11.sp)
+                }
+                StatusChip("1-2줄", Color(0xFF62D6C4))
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(124.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF080A0D)),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.82f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xCC12161D))
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        translation.hudSummary,
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TranslationFallbackTipsCard(state: ConcertState) {
+    Card(colors = darkCard(), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("번역이 불안정할 때", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("관객에게 필요한 행동만 바로 보여줍니다.", color = Color(0xFF9CA3AF), fontSize = 11.sp)
+                }
+                StatusChip("안내", Color(0xFF8AB4F8))
+            }
+            TranslationTipRow("무대를 먼저 보기", "문장이 늦으면 렌즈 표시를 줄이고 다음 안내만 유지합니다.")
+            TranslationTipRow("스마트폰에서 원문 확인", "긴 멘트나 애매한 번역은 스마트폰 화면에서 더 넓게 확인합니다.")
+            TranslationTipRow("녹음 정책 우선", "공연장 정책상 마이크 사용이 제한되면 준비된 자막만 사용합니다.")
+        }
+    }
+}
+
+@Composable
+private fun TranslationTipRow(title: String, detail: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFF171A20))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        Text(detail, color = Color(0xFFB8BDC7), fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun TranslationPipelineCard(state: ConcertState) {
+    val translation = state.liveTranslation
+    val steps = listOf(
+        Triple("IN", translation.source.label, Color(0xFFFFD166)),
+        Triple("STT", "음성 인식", Color(0xFF8AB4F8)),
+        Triple("KO", "요약 번역", Color(0xFF62D6C4)),
+        Triple("HUD", "렌즈 표시", Color(0xFFB794F4))
+    )
+    Card(colors = darkCard(), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("처리 흐름", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("스마트폰 앱이 클라우드와 통신하고 DAT HUD로 넘깁니다.", color = Color(0xFF9CA3AF), fontSize = 11.sp)
+                }
+                StatusChip("PHONE", Color(0xFF8AB4F8))
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                steps.forEachIndexed { index, step ->
+                    PipelineStep(
+                        icon = step.first,
+                        label = step.second,
+                        color = step.third,
+                        active = index <= 3,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PipelineStep(
+    icon: String,
+    label: String,
+    color: Color,
+    active: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .height(84.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (active) color.copy(alpha = 0.14f) else Color(0xFF1D2027))
+            .padding(horizontal = 8.dp, vertical = 9.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.SpaceBetween
+    ) {
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(CircleShape)
+                .background(color.copy(alpha = if (active) 0.24f else 0.10f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(icon, color = if (active) color else Color(0xFF9CA3AF), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        }
+        Text(label, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun AudiencePrepSection(state: ConcertState) {
     TicketCard(state.event.ticket)
     VenueCard(state.event.venueInfo)
-    PrivacySafetyCard(
-        checked = safetyAcknowledged,
-        onCheckedChange = onSafetyAcknowledgedChange
-    )
-    ConsentNoticeCard(defaultConcertConsentNotice)
-    CapturePolicyCard(state.event)
-    TimelineCard(state.tracks)
 }
 
 @Composable
@@ -882,6 +1261,8 @@ private fun OperationsPrepSection(state: ConcertState) {
     PartnerBriefCard(state.partnerBrief)
     PartnerAssetsCard(state.event.partnerAssets)
     OperationsChecklistCard(state.event.operationsChecklist)
+    ConsentNoticeCard(defaultConcertConsentNotice)
+    CapturePolicyCard(state.event)
     SessionPolicyCard()
 }
 
@@ -895,6 +1276,7 @@ private fun TechnicalPrepSection(
     PlatformIntegrationChannelsCard(defaultPlatformIntegrationChannels())
     BackendArchitectureCard(defaultBackendProductArchitecture())
     ConcertRepositoryStatusCard(repositoryResult)
+    TimelineCard(repositoryResult.packageReport.events.firstOrNull()?.tracks ?: sampleConcertEvents.first().tracks)
     GlassesInteractionPolicyCard(defaultGlassesInteractionPolicy)
 }
 
@@ -939,21 +1321,21 @@ private fun DatMockDeviceGuideCard(profile: GlassesIntegrationProfile) {
 @Composable
 private fun SettingsScreen(
     language: AppLanguage,
+    themeMode: AppThemeMode,
     onOpenConcert: () -> Unit,
     onOpenLanguage: () -> Unit,
-    onOpenOperations: () -> Unit,
-    onOpenTechnical: () -> Unit
+    onOpenAppearance: () -> Unit
 ) {
     ScreenFrame {
         VisualEventHeader(
             title = if (language == AppLanguage.Korean) "설정" else "Settings",
-            subtitle = if (language == AppLanguage.Korean) "필요한 항목만 골라서 조정하세요" else "Choose the area you need to adjust",
-            badge = if (language == AppLanguage.Korean) "고급 설정" else "Advanced"
+            subtitle = if (language == AppLanguage.Korean) "공연 관람에 필요한 기본 설정만 조정합니다." else "Adjust only the essentials for the show.",
+            badge = if (language == AppLanguage.Korean) "일반" else "General"
         )
         SettingsCategoryCard(
             icon = "TIX",
             title = if (language == AppLanguage.Korean) "공연/티켓" else "Concert & Ticket",
-            description = if (language == AppLanguage.Korean) "티켓과 주최사 공연 패키지를 기준으로 현재 공연을 연결합니다." else "Connect the current concert using ticket and partner package data.",
+            description = if (language == AppLanguage.Korean) "오늘 볼 공연과 입장 상태를 확인합니다." else "Choose your show and check entry status.",
             status = if (language == AppLanguage.Korean) "공연 연결" else "Concert link",
             color = Color(0xFFE85D75),
             onClick = onOpenConcert
@@ -967,20 +1349,12 @@ private fun SettingsScreen(
             onClick = onOpenLanguage
         )
         SettingsCategoryCard(
-            icon = "OPS",
-            title = if (language == AppLanguage.Korean) "운영 설정" else "Operations",
-            description = if (language == AppLanguage.Korean) "주최사 브리프, 공연 에셋, 운영 체크리스트를 확인합니다." else "Review partner brief, assets, and operations checklist.",
-            status = if (language == AppLanguage.Korean) "주최사 데이터" else "Partner data",
-            color = Color(0xFFFFD166),
-            onClick = onOpenOperations
-        )
-        SettingsCategoryCard(
-            icon = "SDK",
-            title = if (language == AppLanguage.Korean) "기술 설정" else "Technical",
-            description = if (language == AppLanguage.Korean) "Ray-Ban Display, DAT, 백엔드, 전송 정책을 점검합니다." else "Check Ray-Ban Display, DAT, backend, and dispatch policy.",
-            status = if (language == AppLanguage.Korean) "연동 점검" else "Integration",
+            icon = "◐",
+            title = if (language == AppLanguage.Korean) "화면 모드" else "Appearance",
+            description = if (language == AppLanguage.Korean) "시스템, 라이트, 다크 모드를 선택합니다." else "Choose system, light, or dark mode.",
+            status = if (language == AppLanguage.Korean) themeMode.koreanLabel else themeMode.englishLabel,
             color = Color(0xFF8AB4F8),
-            onClick = onOpenTechnical
+            onClick = onOpenAppearance
         )
     }
 }
@@ -996,9 +1370,8 @@ private fun ConcertSettingsScreen(
     ScreenFrame {
         SettingsDetailHeader(
             title = if (language == AppLanguage.Korean) "공연/티켓" else "Concert & Ticket",
-            subtitle = if (language == AppLanguage.Korean) "티켓 기반 공연 연결" else "Ticket-based concert linking"
+            subtitle = if (language == AppLanguage.Korean) "오늘 볼 공연과 입장 상태를 확인합니다." else "Choose your show and check entry status."
         )
-        ConcertLinkPolicyCard(language)
         if (events.isEmpty()) {
             EmptyConcertStateCard()
         } else {
@@ -1032,6 +1405,26 @@ private fun LanguageSettingsScreen(
 }
 
 @Composable
+private fun AppearanceSettingsScreen(
+    language: AppLanguage,
+    themeMode: AppThemeMode,
+    onThemeModeChange: (AppThemeMode) -> Unit,
+    onBack: () -> Unit
+) {
+    ScreenFrame {
+        SettingsDetailHeader(
+            title = if (language == AppLanguage.Korean) "화면 모드" else "Appearance",
+            subtitle = if (language == AppLanguage.Korean) "공연장 밝기에 맞춰 앱 화면을 조정합니다." else "Adjust the app display for the venue."
+        )
+        AppearanceSettingsCard(
+            language = language,
+            selectedThemeMode = themeMode,
+            onThemeModeChange = onThemeModeChange
+        )
+    }
+}
+
+@Composable
 private fun OperationsSettingsScreen(
     state: ConcertState,
     language: AppLanguage,
@@ -1048,15 +1441,27 @@ private fun OperationsSettingsScreen(
 
 @Composable
 private fun TechnicalSettingsScreen(
+    state: ConcertState,
     glassesProfile: GlassesIntegrationProfile,
     repositoryResult: ConcertRepositoryResult,
+    micPermissionDenied: Boolean,
+    appInForeground: Boolean,
     language: AppLanguage,
+    onToggleMic: () -> Unit,
     onBack: () -> Unit
 ) {
     ScreenFrame {
         SettingsDetailHeader(
             title = if (language == AppLanguage.Korean) "기술 설정" else "Technical",
             subtitle = if (language == AppLanguage.Korean) "글래스, 백엔드, 플랫폼 연동" else "Glasses, backend, platform integration"
+        )
+        TranslationPipelineCard(state = state)
+        TranslationProviderPlanCard(defaultTranslationProviderOptions)
+        AudioPanel(
+            state = state,
+            micPermissionDenied = micPermissionDenied,
+            appInForeground = appInForeground,
+            onToggleMic = onToggleMic
         )
         TechnicalPrepSection(
             glassesProfile = glassesProfile,
@@ -1108,34 +1513,6 @@ private fun SettingsCategoryCard(
 }
 
 @Composable
-private fun ConcertLinkPolicyCard(language: AppLanguage) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF171A20)), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                if (language == AppLanguage.Korean) "공연 연결 방식" else "How concerts are linked",
-                color = Color.White,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                if (language == AppLanguage.Korean) {
-                    "실제 제품에서는 티켓 예매처/입장 인증 결과, 주최사 공연 패키지 ID, 공연장 좌석/구역 정보를 매칭해 사용자가 접근 가능한 공연만 표시합니다."
-                } else {
-                    "In production, available concerts are resolved by matching ticket provider data, partner package IDs, check-in status, seat and zone."
-                },
-                color = Color(0xFFB8BDC7),
-                fontSize = 13.sp
-            )
-            Text(
-                if (language == AppLanguage.Korean) "현재 빌드는 로컬 샘플 공연 패키지로 이 흐름을 시뮬레이션합니다." else "This build simulates that flow with local sample concert packages.",
-                color = Color(0xFFFFD166),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-        }
-    }
-}
-
-@Composable
 private fun SettingsConcertEventCard(event: ConcertEvent, selected: Boolean, onClick: () -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF171A20)), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1149,7 +1526,7 @@ private fun SettingsConcertEventCard(event: ConcertEvent, selected: Boolean, onC
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SettingsMiniMetric("티켓", if (event.ticket.checkedIn) "입장 확인" else "인증 필요", Modifier.weight(1f))
                 SettingsMiniMetric("좌석", event.venueInfo.seat, Modifier.weight(1f))
-                SettingsMiniMetric("패키지", event.partnerBrief.dataStatus, Modifier.weight(1f))
+                SettingsMiniMetric("게이트", event.venueInfo.gate, Modifier.weight(1f))
             }
             Button(
                 onClick = onClick,
@@ -1184,9 +1561,9 @@ private fun SettingsMiniMetric(label: String, value: String, modifier: Modifier 
 private fun EmptyConcertStateCard() {
     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF171A20)), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("공연 데이터 없음", color = Color.White, fontWeight = FontWeight.Bold)
+            Text("연결 가능한 공연이 없습니다", color = Color.White, fontWeight = FontWeight.Bold)
             Text(
-                "주최사 공연 패키지가 아직 로드되지 않았습니다. 로컬 샘플 JSON 또는 서버 데이터가 연결되면 공연 목록이 표시됩니다.",
+                "티켓 확인이 완료되면 이용 가능한 공연이 여기에 표시됩니다.",
                 color = Color(0xFFB8BDC7),
                 fontSize = 13.sp
             )
@@ -1256,6 +1633,64 @@ private fun LanguageSettingsCard(
         }
     }
 }
+
+@Composable
+private fun AppearanceSettingsCard(
+    language: AppLanguage,
+    selectedThemeMode: AppThemeMode,
+    onThemeModeChange: (AppThemeMode) -> Unit
+) {
+    val ko = language == AppLanguage.Korean
+    Card(colors = darkCard(), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                if (ko) "화면 모드" else "Appearance",
+                color = Color.White,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                if (ko) {
+                    "기본값은 시스템 설정을 따릅니다. 공연장에서는 눈부심을 줄이려면 다크 모드가 적합합니다."
+                } else {
+                    "The default follows your system setting. Dark mode is better for reducing glare in venues."
+                },
+                color = Color(0xFFB8BDC7),
+                fontSize = 12.sp
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AppThemeMode.entries.forEach { mode ->
+                    val selected = mode == selectedThemeMode
+                    Button(
+                        onClick = { onThemeModeChange(mode) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (selected) Color(0xFF8AB4F8) else Color(0xFF20242D),
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(themeModeIcon(mode, selected), fontSize = 16.sp)
+                            Text(
+                                if (ko) mode.koreanLabel else mode.englishLabel,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun themeModeIcon(mode: AppThemeMode, selected: Boolean): String =
+    when (mode) {
+        AppThemeMode.System -> if (selected) "●" else "○"
+        AppThemeMode.Light -> "☀"
+        AppThemeMode.Dark -> "◐"
+    }
 
 private data class ConcertBoardPost(
     val id: String,
@@ -1417,7 +1852,8 @@ private fun BoardConcertAccessCard(
     onOpen: () -> Unit
 ) {
     val ko = language == AppLanguage.Korean
-    val verified = event.ticket.checkedIn
+    val accessPolicy = event.boardAccessPolicy()
+    val verified = accessPolicy.canEnter
     val color = if (verified) Color(0xFF62D6C4) else Color(0xFFFFD166)
     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF171A20)), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1425,6 +1861,7 @@ private fun BoardConcertAccessCard(
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(event.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text("${event.partnerBrief.showDate} · ${event.venueInfo.seat}", color = Color(0xFFB8BDC7), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(accessPolicy.reason, color = Color(0xFF9CA3AF), fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 StatusChip(
                     if (verified) {
@@ -1467,7 +1904,13 @@ private fun ConcertBoardScreen(
     onOpenPost: (ConcertBoardPost) -> Unit
 ) {
     var draft by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf(if (language == AppLanguage.Korean) "팁" else "Tips") }
     val ko = language == AppLanguage.Korean
+    val categories = if (ko) {
+        listOf("팁", "주의", "응원", "질문")
+    } else {
+        listOf("Tips", "Alerts", "Fan", "Question")
+    }
     ScreenFrame {
         VisualEventHeader(
             title = if (ko) "게시판" else "Fan Board",
@@ -1477,6 +1920,22 @@ private fun ConcertBoardScreen(
         Card(colors = darkCard(), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(if (ko) "팁이나 주의사항 공유" else "Share tips or alerts", color = Color.White, fontWeight = FontWeight.Bold)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    categories.forEach { category ->
+                        Button(
+                            onClick = { selectedCategory = category },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = if (selectedCategory == category) {
+                                ButtonDefaults.buttonColors(containerColor = boardCategoryColor(category))
+                            } else {
+                                ButtonDefaults.buttonColors(containerColor = Color(0xFF252A33), contentColor = Color(0xFFE5E7EB))
+                            }
+                        ) {
+                            Text(category, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
                 TextField(
                     value = draft,
                     onValueChange = { draft = it },
@@ -1493,7 +1952,7 @@ private fun ConcertBoardScreen(
                             onAddPost(
                                 ConcertBoardPost(
                                     id = "post-${System.currentTimeMillis()}",
-                                    category = if (ko) "공유" else "Share",
+                                    category = selectedCategory,
                                     author = if (ko) "나" else "Me",
                                     message = message,
                                     timeLabel = if (ko) "방금" else "Now",
@@ -1513,9 +1972,9 @@ private fun ConcertBoardScreen(
             }
         }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            VisualMiniTile(if (ko) "팁" else "Tips", posts.count { it.category == "팁" }.toString(), Color(0xFF62D6C4), Modifier.weight(1f))
-            VisualMiniTile(if (ko) "주의" else "Alerts", posts.count { it.category == "주의" }.toString(), Color(0xFFFFD166), Modifier.weight(1f))
-            VisualMiniTile(if (ko) "응원" else "Fan", posts.count { it.category == "응원" }.toString(), Color(0xFFE85D75), Modifier.weight(1f))
+            categories.forEach { category ->
+                VisualMiniTile(category, posts.count { boardCategoryMatches(category, it.category) }.toString(), boardCategoryColor(category), Modifier.weight(1f))
+            }
         }
         posts.forEach { post ->
             BoardPostCard(post = post, onClick = { onOpenPost(post) })
@@ -1631,11 +2090,20 @@ private fun BoardCommentCard(comment: ConcertBoardComment) {
 
 private fun boardCategoryColor(category: String): Color =
     when (category) {
-        "주의" -> Color(0xFFFFD166)
-        "팁" -> Color(0xFF62D6C4)
-        "응원" -> Color(0xFFE85D75)
-        "질문" -> Color(0xFF8AB4F8)
+        "주의", "Alerts" -> Color(0xFFFFD166)
+        "팁", "Tips" -> Color(0xFF62D6C4)
+        "응원", "Fan" -> Color(0xFFE85D75)
+        "질문", "Question" -> Color(0xFF8AB4F8)
         else -> Color(0xFFB794F4)
+    }
+
+private fun boardCategoryMatches(displayCategory: String, postCategory: String): Boolean =
+    when (displayCategory) {
+        "팁", "Tips" -> postCategory == "팁" || postCategory == "Tips"
+        "주의", "Alerts" -> postCategory == "주의" || postCategory == "Alerts"
+        "응원", "Fan" -> postCategory == "응원" || postCategory == "Fan"
+        "질문", "Question" -> postCategory == "질문" || postCategory == "Question"
+        else -> displayCategory == postCategory
     }
 
 @Composable
@@ -1817,9 +2285,9 @@ private fun CompanionResumeNoticeCard(onDismiss: () -> Unit) {
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Companion 재개 확인", color = Color.White, fontWeight = FontWeight.Bold)
+            Text("AR Live 재개 확인", color = Color.White, fontWeight = FontWeight.Bold)
             Text(
-                "앱이 백그라운드로 전환되어 타이머와 마이크 분석을 멈췄습니다. 공연 흐름을 확인한 뒤 마이크 분석이 필요하면 다시 시작하세요.",
+                "앱이 백그라운드로 전환되어 공연 진행이 일시 중지되었습니다. 현재 곡 흐름을 확인한 뒤 다시 이어가세요.",
                 color = Color(0xFFB8BDC7),
                 fontSize = 13.sp
             )
@@ -1909,28 +2377,6 @@ private fun OperationsChecklistCard(items: List<OperationsChecklistItem>) {
                     status = item.status.label,
                     color = assetStatusColor(item.status)
                 )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PrivacySafetyCard(
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF171A20)), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("안전 모드", color = Color.White, fontWeight = FontWeight.Bold)
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                VisualMiniTile("얼굴인식", "OFF", Color(0xFF62D6C4), Modifier.weight(1f))
-                VisualMiniTile("자동촬영", "OFF", Color(0xFF62D6C4), Modifier.weight(1f))
-                VisualMiniTile("상시녹음", "OFF", Color(0xFF62D6C4), Modifier.weight(1f))
-            }
-            Text("마이크는 직접 시작한 동안 볼륨 레벨만 계산합니다.", color = Color(0xFFB8BDC7), fontSize = 12.sp)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = checked, onCheckedChange = onCheckedChange)
-                Text("데이터 처리와 공연장 정책 확인", color = Color.White, fontSize = 13.sp)
             }
         }
     }
@@ -2153,8 +2599,7 @@ private fun TimelineCard(tracks: List<ConcertTrack>) {
 
 @Composable
 private fun LiveCompanionTopBar(
-    state: ConcertState,
-    viewMode: CompanionViewMode
+    state: ConcertState
 ) {
     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15171C)), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -2166,7 +2611,7 @@ private fun LiveCompanionTopBar(
                 Text(state.event.title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("${state.currentTrack.artist} · ${state.currentTrack.title}", color = Color(0xFFB8BDC7), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(viewMode.label, color = Color(0xFF9AE6B4), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Text("공연 중", color = Color(0xFF9AE6B4), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     Text("${formatTime(state.elapsedSeconds)} / ${formatTime(state.currentTrack.durationSeconds)}", color = Color(0xFF6B7280), fontSize = 11.sp)
                 }
             }
@@ -2180,7 +2625,7 @@ private fun StageView(state: ConcertState) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(330.dp)
+                .height(240.dp)
                 .background(Brush.verticalGradient(listOf(Color(0xFF141923), Color(0xFF1E1A22), Color(0xFF0C0E12))))
         ) {
             ArStageCanvas(state)
@@ -2203,8 +2648,8 @@ private fun StageView(state: ConcertState) {
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(state.activeCue.titleKo, color = Color(0xFFFFD166), fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(state.activeCue.titleEn, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 30.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("현재 안내", color = Color(0xFFFFD166), fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
+                    Text(state.activeCue.titleKo, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 24.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 LinearProgressIndicator(
                     progress = { state.progress },
@@ -2266,7 +2711,7 @@ private fun NextCueChip(state: ConcertState, modifier: Modifier = Modifier) {
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
-        Text("NEXT AR", color = Color(0xFF9AE6B4), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Text("다음 안내", color = Color(0xFF9AE6B4), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         Text(
             state.nextCue?.titleKo ?: "마지막 큐",
             color = Color.White,
@@ -2287,7 +2732,7 @@ private fun TranslationBadge(modifier: Modifier = Modifier) {
             .padding(horizontal = 14.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.End
     ) {
-        Text("번역 HUD", color = Color(0xFFB8BDC7), fontSize = 12.sp)
+        Text("번역", color = Color(0xFFB8BDC7), fontSize = 12.sp)
         Text("LIVE", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
     }
 }
@@ -2299,31 +2744,24 @@ private fun LiveTranslationHudCard(state: ConcertState) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(verticalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.weight(1f)) {
-                    Text("실시간 번역 HUD", color = Color.White, fontWeight = FontWeight.Bold)
-                    Text("해외 아티스트 멘트를 짧은 자막으로 렌즈에 표시하는 실험 기능", color = Color(0xFF9CA3AF), fontSize = 11.sp)
+                    Text("지금 멘트 번역", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("무대를 가리지 않도록 짧게 보여줍니다.", color = Color(0xFF9CA3AF), fontSize = 11.sp)
                 }
-                StatusChip(translation.stage.label, Color(0xFF8AB4F8))
+                StatusChip("LIVE", Color(0xFF8AB4F8))
             }
             VisualStatusRow(
-                icon = "IN",
-                title = translation.source.label,
-                detail = translation.source.note,
-                status = translation.source.reliabilityLabel,
-                color = Color(0xFFFFD166)
-            )
-            VisualStatusRow(
-                icon = "STT",
-                title = translation.engineName,
-                detail = "${translation.sourceLanguage} -> ${translation.targetLanguage} · 예상 ${translation.estimatedLatencyMillis / 1000.0}s · 신뢰도 ${translation.confidencePercent}%",
-                status = "LIVE",
-                color = Color(0xFF8AB4F8)
-            )
-            VisualStatusRow(
-                icon = "TXT",
+                icon = "T",
                 title = "렌즈 표시 문구",
                 detail = translation.hudSummary,
                 status = "1-2줄",
                 color = Color(0xFF62D6C4)
+            )
+            VisualStatusRow(
+                icon = "P",
+                title = "긴 멘트",
+                detail = "긴 문장과 원문은 스마트폰에서 확인합니다.",
+                status = "폰 확인",
+                color = Color(0xFFFFD166)
             )
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
@@ -2347,10 +2785,34 @@ private fun LiveTranslationHudCard(state: ConcertState) {
                 }
             }
             Text(
-                "긴 문장은 스마트폰에 남기고, 렌즈에는 1-2줄 요약 번역만 표시합니다.",
+                "환호성이나 지연 때문에 문장이 불확실하면 의미만 짧게 표시합니다.",
                 color = Color(0xFFB8BDC7),
                 fontSize = 12.sp
             )
+        }
+    }
+}
+
+@Composable
+private fun TranslationProviderPlanCard(options: List<TranslationProviderOption>) {
+    Card(colors = darkCard(), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("번역 엔진 구성", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("클라우드 기본, 사전 자막 fallback, Meta AI 직접 호출 제외", color = Color(0xFF9CA3AF), fontSize = 11.sp)
+                }
+                StatusChip("MVP", Color(0xFF62D6C4))
+            }
+            options.forEach { option ->
+                VisualStatusRow(
+                    icon = if (option.selectedForMvp) "ON" else "--",
+                    title = "${option.role.label} · ${option.name}",
+                    detail = option.executionPath,
+                    status = option.connectivityOwner,
+                    color = translationProviderColor(option.role)
+                )
+            }
         }
     }
 }
@@ -2399,8 +2861,8 @@ private fun CompanionInteractionEventsCard(
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text("콘서트 이벤트", color = Color.White, fontWeight = FontWeight.Bold)
-                    Text("주최사 승인 타임라인 기준", color = Color(0xFF9CA3AF), fontSize = 11.sp)
+                    Text("지금 할 일", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("공연 흐름에 맞춰 바로 참여할 행동만 보여줍니다.", color = Color(0xFF9CA3AF), fontSize = 11.sp)
                 }
                 StatusChip(featuredEvent?.type?.label ?: "대기", featuredEvent?.type?.eventColor() ?: Color(0xFF6B7280))
             }
@@ -2434,7 +2896,7 @@ private fun CompanionInteractionEventsCard(
                     }
                 }
             } else {
-                Text("현재 곡에 표시할 참여 이벤트가 없습니다.", color = Color(0xFFB8BDC7), fontSize = 12.sp)
+                Text("지금은 무대를 편하게 보면 됩니다.", color = Color(0xFFB8BDC7), fontSize = 12.sp)
             }
             upcoming.forEach { event ->
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -2447,43 +2909,6 @@ private fun CompanionInteractionEventsCard(
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun CompanionModeSelector(
-    selectedMode: CompanionViewMode,
-    onModeChange: (CompanionViewMode) -> Unit
-) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF171A20)), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("화면 모드", color = Color.White, fontWeight = FontWeight.Bold)
-                StatusChip(selectedMode.label, Color(0xFF62D6C4))
-            }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CompanionViewMode.entries.forEach { mode ->
-                    val selected = mode == selectedMode
-                    val colors = if (selected) {
-                        ButtonDefaults.buttonColors(containerColor = Color(0xFFE85D75))
-                    } else {
-                        ButtonDefaults.outlinedButtonColors()
-                    }
-                    Button(
-                        onClick = { onModeChange(mode) },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = colors
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(if (mode == CompanionViewMode.AudienceFocus) "✦" else "⚙", fontSize = 17.sp)
-                            Text(mode.label, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 11.sp)
-                        }
-                    }
-                }
-            }
-            Text(selectedMode.description, color = Color(0xFF9CA3AF), fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -2506,8 +2931,8 @@ private fun GlassHudPreview(
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Lens Simulator", color = Color.White, fontWeight = FontWeight.Bold)
-                    Text("스마트글래스 렌즈에 보일 HUD 위치 미리보기", color = Color(0xFFB8BDC7), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("렌즈 미리보기", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("공연 중 시야를 가리지 않는지 확인합니다.", color = Color(0xFFB8BDC7), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Text("${visualScene.durationMillis / 1000}s", color = Color(0xFFFFD166), fontSize = 22.sp, fontWeight = FontWeight.Bold)
             }
@@ -3060,6 +3485,14 @@ private fun integrationChannelColor(channel: PlatformIntegrationChannel): Color 
         PlatformIntegrationChannelType.ExternalFallback -> Color(0xFF8AB4F8)
     }
 
+private fun translationProviderColor(role: TranslationProviderRole): Color =
+    when (role) {
+        TranslationProviderRole.Primary -> Color(0xFF62D6C4)
+        TranslationProviderRole.Fallback -> Color(0xFFFFD166)
+        TranslationProviderRole.Experimental -> Color(0xFF8AB4F8)
+        TranslationProviderRole.NotSupported -> Color(0xFF9CA3AF)
+    }
+
 private fun backendStateColor(state: BackendRuntimeState): Color =
     when (state) {
         BackendRuntimeState.LocalOnly -> Color(0xFF9AE6B4)
@@ -3141,12 +3574,8 @@ fun ConcertExperiencePreview() {
             appInForeground = true,
             resumeNoticeVisible = false,
             glassesDispatchRecords = emptyList(),
-            viewMode = CompanionViewMode.AudienceFocus,
-            onViewModeChange = {},
             onReaction = {},
             onInteractionEvent = {},
-            onGlassesInput = {},
-            onSeekCue = {},
             onDispatchHud = {},
             onDismissResumeNotice = {},
             onToggleMic = {},

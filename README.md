@@ -121,6 +121,9 @@ RayBan_0.0은 실제 콘서트 현장에서 디스플레이가 있는 Meta Ray-B
 - 녹음/저작권/공연장 정책 때문에 원본 음성 저장은 기본 기능에 포함하지 않습니다.
 - 현재 앱 상태에는 `LiveTranslationState`가 포함되어 입력 소스, 처리 단계, 원문/번역문, HUD 요약, 예상 지연, 신뢰도, 정책 메모를 함께 계산합니다.
 - 번역 엔진은 `LiveTranslationEngine` 인터페이스 뒤에 격리합니다. 현재 구현체는 `OfficialFeedTranslationEngine`, `PreparedSubtitleTranslationEngine`, `PhoneMicExperimentalTranslationEngine`, `DisabledTranslationEngine`이며, 실제 외부 STT/번역 API 연결 전까지 승인된 큐/자막 피드로 HUD 표시를 검증합니다.
+- MVP 번역 provider는 Android 스마트폰 앱이 클라우드 STT/번역 서버와 통신하고, 결과를 1-2줄 HUD payload로 변환한 뒤 DAT 경로로 Ray-Ban Display에 전달하는 구조를 기본으로 합니다.
+- 클라우드 지연, 네트워크 장애, 승인된 멘트 구간에서는 사전 자막/멘트 피드를 fallback으로 사용합니다.
+- Meta AI 앱의 내장 번역 기능은 사용자가 별도로 쓸 수 있는 플랫폼 기능으로 보고, 우리 앱이 직접 호출하는 번역 provider로 의존하지 않습니다.
 
 ## 글래스 연동 구조
 
@@ -294,7 +297,7 @@ $env:JAVA_HOME='C:\Program Files\Eclipse Adoptium\jdk-21.0.11.10-hotspot'
 - [x] 번역 입력 소스 모델 정의: 공식 오디오 피드, 휴대폰 마이크 실험, 사전 자막 피드
 - [x] AR Live 카드에 STT -> 번역 -> 1-2줄 HUD 요약 상태 표시
 - [x] 실제 STT/번역 엔진 연결 전 인터페이스와 fallback 정책 구현
-- [ ] 클라우드/온디바이스 STT 및 번역 provider 후보 비교 후 구현체 선택
+- [x] 클라우드/온디바이스 STT 및 번역 provider 후보 비교 후 구현체 선택
 - [ ] 번역 지연 시간, 오역, 욕설/민감 표현, 공연장 녹음 정책 대응 규칙 정의
 - [ ] Lens Simulator에서 번역 자막 길이, 위치, 표시 시간 검수 기능 강화
 

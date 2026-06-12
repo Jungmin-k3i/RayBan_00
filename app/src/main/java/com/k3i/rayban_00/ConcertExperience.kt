@@ -13,6 +13,7 @@ enum class AppScreen {
     Home,
     Readiness,
     Detail,
+    Translation,
     Companion,
     Board,
     BoardEventPosts,
@@ -20,6 +21,7 @@ enum class AppScreen {
     Settings,
     SettingsConcert,
     SettingsLanguage,
+    SettingsAppearance,
     SettingsOperations,
     SettingsTechnical
 }
@@ -33,25 +35,14 @@ enum class AppLanguage(
     English("en", "English", "English")
 }
 
-enum class CompanionViewMode(
-    val label: String,
-    val description: String
+enum class AppThemeMode(
+    val koreanLabel: String,
+    val englishLabel: String
 ) {
-    AudienceFocus(
-        label = "관객 집중",
-        description = "공연 중에는 HUD, 반응, 마이크 상태만 간결하게 표시합니다."
-    ),
-    OperatorDebug(
-        label = "운영 검증",
-        description = "큐 타임라인, 글래스 입력 시뮬레이터, 전송 기록을 함께 확인합니다."
-    )
+    System("시스템 설정", "System"),
+    Light("라이트", "Light"),
+    Dark("다크", "Dark")
 }
-
-data class CompanionPanelVisibility(
-    val showDispatchControls: Boolean,
-    val showCueTimeline: Boolean,
-    val showInputSimulator: Boolean
-)
 
 enum class PartnerAssetStatus(val label: String) {
     Confirmed("확정"),
@@ -196,6 +187,60 @@ data class LiveTranslationState(
     val engineName: String,
     val fallbackReason: String? = null
 )
+
+enum class TranslationProviderRole(val label: String) {
+    Primary("기본"),
+    Fallback("대체"),
+    Experimental("실험"),
+    NotSupported("직접 연동 제외")
+}
+
+data class TranslationProviderOption(
+    val role: TranslationProviderRole,
+    val name: String,
+    val executionPath: String,
+    val connectivityOwner: String,
+    val reason: String,
+    val selectedForMvp: Boolean
+)
+
+val defaultTranslationProviderOptions = listOf(
+    TranslationProviderOption(
+        role = TranslationProviderRole.Primary,
+        name = "Cloud STT/Translation",
+        executionPath = "Android 앱 -> 클라우드 STT/번역 -> Android 앱 -> DAT HUD",
+        connectivityOwner = "Android 스마트폰 앱",
+        reason = "공식 오디오 피드 기반 실시간 번역 품질, 운영 로그, fallback 제어가 가장 안정적입니다.",
+        selectedForMvp = true
+    ),
+    TranslationProviderOption(
+        role = TranslationProviderRole.Fallback,
+        name = "Prepared Subtitle Feed",
+        executionPath = "공연 패키지 시간 코드 -> Android 앱 -> DAT HUD",
+        connectivityOwner = "Android 스마트폰 앱",
+        reason = "클라우드 지연/장애 또는 승인된 멘트가 있는 구간에서 저지연으로 표시합니다.",
+        selectedForMvp = true
+    ),
+    TranslationProviderOption(
+        role = TranslationProviderRole.Experimental,
+        name = "On-device / Phone Mic",
+        executionPath = "사용자 시작 마이크 -> 앱 내 처리 후보 -> Android 앱 HUD",
+        connectivityOwner = "Android 스마트폰 앱",
+        reason = "공식 피드가 없을 때만 검토하며 원본 음성 저장과 백그라운드 수집은 금지합니다.",
+        selectedForMvp = false
+    ),
+    TranslationProviderOption(
+        role = TranslationProviderRole.NotSupported,
+        name = "Meta AI App internal translation",
+        executionPath = "Meta AI 앱 내부 사용자 기능",
+        connectivityOwner = "Meta AI 앱",
+        reason = "사용자 기능은 존재할 수 있지만 우리 앱이 안정적으로 호출할 공개 provider API로 보지 않습니다.",
+        selectedForMvp = false
+    )
+)
+
+fun selectedTranslationProviderOptions(): List<TranslationProviderOption> =
+    defaultTranslationProviderOptions.filter { it.selectedForMvp }
 
 data class HudVisualScene(
     val sceneId: String,
@@ -358,6 +403,35 @@ data class ConcertEvent(
     val operationsChecklist: List<OperationsChecklistItem>,
     val interactionEvents: List<ConcertInteractionEvent> = emptyList()
 )
+
+enum class BoardAccessDecision(val label: String) {
+    Allowed("입장 가능"),
+    TicketVerificationRequired("인증 필요")
+}
+
+data class BoardAccessPolicy(
+    val eventId: String,
+    val decision: BoardAccessDecision,
+    val reason: String
+) {
+    val canEnter: Boolean
+        get() = decision == BoardAccessDecision.Allowed
+}
+
+fun ConcertEvent.boardAccessPolicy(): BoardAccessPolicy =
+    if (ticket.checkedIn) {
+        BoardAccessPolicy(
+            eventId = id,
+            decision = BoardAccessDecision.Allowed,
+            reason = "티켓/입장 인증이 완료된 공연입니다."
+        )
+    } else {
+        BoardAccessPolicy(
+            eventId = id,
+            decision = BoardAccessDecision.TicketVerificationRequired,
+            reason = "티켓/입장 인증 후 이 공연 게시판을 이용할 수 있습니다."
+        )
+    }
 
 data class ConcertState(
     val event: ConcertEvent = sampleConcertEvents.first(),
@@ -684,20 +758,6 @@ val defaultConcertConsentNotice = listOf(
         required = true
     )
 )
-
-fun CompanionViewMode.panelVisibility(): CompanionPanelVisibility =
-    when (this) {
-        CompanionViewMode.AudienceFocus -> CompanionPanelVisibility(
-            showDispatchControls = false,
-            showCueTimeline = false,
-            showInputSimulator = false
-        )
-        CompanionViewMode.OperatorDebug -> CompanionPanelVisibility(
-            showDispatchControls = true,
-            showCueTimeline = true,
-            showInputSimulator = true
-        )
-    }
 
 fun ConcertState.toAudioPanelUiState(
     micPermissionDenied: Boolean,

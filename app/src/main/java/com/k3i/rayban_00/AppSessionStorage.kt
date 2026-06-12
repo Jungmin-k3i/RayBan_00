@@ -19,6 +19,7 @@ private const val KEY_COMPLETED_TRACKS = "completed_tracks"
 private const val KEY_INTERACTION_EVENT_COUNTS = "interaction_event_counts"
 private const val KEY_LAST_INTERACTION_EVENT_ID = "last_interaction_event_id"
 private const val KEY_LANGUAGE = "language"
+private const val KEY_THEME_MODE = "theme_mode"
 
 fun loadConcertSession(context: Context): SavedConcertSession {
     val prefs = context.getSharedPreferences(SESSION_PREFS, Context.MODE_PRIVATE)
@@ -29,7 +30,15 @@ fun loadConcertSession(context: Context): SavedConcertSession {
         ?.let { runCatching { AppScreen.valueOf(it) }.getOrNull() }
         ?: AppScreen.Home
 
-    val restoredScreen = if (screen == AppScreen.Companion) AppScreen.Detail else screen
+    val restoredScreen = when (screen) {
+        AppScreen.Settings,
+        AppScreen.SettingsConcert,
+        AppScreen.SettingsLanguage,
+        AppScreen.SettingsAppearance,
+        AppScreen.SettingsOperations,
+        AppScreen.SettingsTechnical -> AppScreen.Settings
+        else -> AppScreen.Home
+    }
 
     return SavedConcertSession(
         screen = restoredScreen,
@@ -77,6 +86,20 @@ fun saveAppLanguage(context: Context, language: AppLanguage) {
     context.getSharedPreferences(SESSION_PREFS, Context.MODE_PRIVATE)
         .edit()
         .putString(KEY_LANGUAGE, language.name)
+        .apply()
+}
+
+fun loadAppThemeMode(context: Context): AppThemeMode {
+    val prefs = context.getSharedPreferences(SESSION_PREFS, Context.MODE_PRIVATE)
+    return prefs.getString(KEY_THEME_MODE, AppThemeMode.System.name)
+        ?.let { runCatching { AppThemeMode.valueOf(it) }.getOrNull() }
+        ?: AppThemeMode.System
+}
+
+fun saveAppThemeMode(context: Context, themeMode: AppThemeMode) {
+    context.getSharedPreferences(SESSION_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString(KEY_THEME_MODE, themeMode.name)
         .apply()
 }
 

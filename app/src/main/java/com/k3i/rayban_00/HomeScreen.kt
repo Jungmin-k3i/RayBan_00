@@ -41,20 +41,16 @@ import androidx.compose.ui.unit.sp
 fun HomeScreen(
     state: ConcertState,
     glassesProfile: GlassesIntegrationProfile,
-    onOpenReadiness: () -> Unit,
-    onOpenCurrent: () -> Unit,
     onReaction: (ReactionSignal) -> Unit,
     onInteractionEvent: (ConcertInteractionEvent) -> Unit
 ) {
     ScreenFrame {
         AudienceHomeHero(
             state = state,
-            glassesProfile = glassesProfile,
-            onOpenCurrent = onOpenCurrent
+            glassesProfile = glassesProfile
         )
         LiveSyncPanel(
             state = state,
-            onOpenCurrent = onOpenCurrent,
             onReaction = onReaction,
             onInteractionEvent = onInteractionEvent
         )
@@ -64,8 +60,7 @@ fun HomeScreen(
 @Composable
 private fun AudienceHomeHero(
     state: ConcertState,
-    glassesProfile: GlassesIntegrationProfile,
-    onOpenCurrent: () -> Unit
+    glassesProfile: GlassesIntegrationProfile
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = Color(0xFF131418)),
@@ -126,17 +121,19 @@ private fun AudienceHomeHero(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                HomeHudCueProgress(progress = state.progress)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(
-                        onClick = onOpenCurrent,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE85D75))
-                    ) {
-                        Text("AR Live")
-                    }
-                    CurrentCueBadge(state = state, modifier = Modifier.weight(1f))
+                    HomeInfoBadge(
+                        label = "내 좌석",
+                        value = state.event.venueInfo.seat,
+                        color = Color(0xFF62D6C4),
+                        modifier = Modifier.weight(1f)
+                    )
+                    HomeInfoBadge(
+                        label = "입장 상태",
+                        value = if (state.event.ticket.checkedIn) "확인 완료" else "입장 확인 필요",
+                        color = Color(0xFFFFD166),
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
         }
@@ -146,7 +143,6 @@ private fun AudienceHomeHero(
 @Composable
 private fun LiveSyncPanel(
     state: ConcertState,
-    onOpenCurrent: () -> Unit,
     onReaction: (ReactionSignal) -> Unit,
     onInteractionEvent: (ConcertInteractionEvent) -> Unit
 ) {
@@ -165,39 +161,15 @@ private fun LiveSyncPanel(
                         .background(Color(0xFF232733)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("${((state.trackIndex + 1) * 100 / state.tracks.size.coerceAtLeast(1))}%", color = Color(0xFFFFD166), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text("${state.trackIndex + 1}/${state.tracks.size}", color = Color(0xFFFFD166), fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
             }
             HomeTrackProgress(state)
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                LiveEventCard(
-                    label = "현재 AR",
-                    title = state.activeCue.titleKo,
-                    body = state.activeCue.hudMessageKo,
-                    color = Color(0xFF62D6C4),
-                    modifier = Modifier.weight(1f)
-                )
-                LiveEventCard(
-                    label = "다음 이벤트",
-                    title = state.nextCue?.titleKo ?: "곡 마무리",
-                    body = state.nextCue?.let { "${formatTime(it.atSecond - state.elapsedSeconds)} 후" } ?: "다음 곡 준비",
-                    color = Color(0xFFFFD166),
-                    modifier = Modifier.weight(1f)
-                )
-            }
             InteractionEventPanel(
                 state = state,
                 onReaction = onReaction,
                 onInteractionEvent = onInteractionEvent
             )
-            Button(
-                onClick = onOpenCurrent,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE85D75))
-            ) {
-                Text("공연 상호작용 열기")
-            }
         }
     }
 }
@@ -217,7 +189,7 @@ private fun InteractionEventPanel(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text("라이브 참여 이벤트", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Text("주최사 승인 타임라인에 맞춰 참여 타이밍을 안내합니다.", color = Color(0xFF9CA3AF), fontSize = 11.sp)
+                    Text("공연 흐름에 맞춰 지금 참여할 타이밍을 알려줍니다.", color = Color(0xFF9CA3AF), fontSize = 11.sp)
                 }
                 Text(featuredEvent?.type?.label ?: "대기", color = lightstickColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
@@ -404,27 +376,6 @@ private fun HomeTrackProgress(state: ConcertState) {
 }
 
 @Composable
-private fun LiveEventCard(
-    label: String,
-    title: String,
-    body: String,
-    color: Color,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(color.copy(alpha = 0.13f))
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(5.dp)
-    ) {
-        Text(label, color = color, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-        Text(title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(body, color = Color(0xFFB8BDC7), fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-@Composable
 private fun LiveStageArtwork(state: ConcertState) {
     Canvas(modifier = Modifier.fillMaxWidth().height(230.dp)) {
         val width = size.width
@@ -486,7 +437,7 @@ private fun HomeHudCueProgress(progress: Float) {
     val percent = (progress * 100).toInt().coerceIn(0, 100)
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("현재 곡 HUD 동기화", color = Color(0xFFE5E7EB), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text("현재 곡 진행", color = Color(0xFFE5E7EB), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             Text("$percent%", color = Color(0xFFFFD166), fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
         Box(
@@ -507,7 +458,12 @@ private fun HomeHudCueProgress(progress: Float) {
 }
 
 @Composable
-private fun CurrentCueBadge(state: ConcertState, modifier: Modifier = Modifier) {
+private fun HomeInfoBadge(
+    label: String,
+    value: String,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
@@ -515,9 +471,9 @@ private fun CurrentCueBadge(state: ConcertState, modifier: Modifier = Modifier) 
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        Text("다음 AR", color = Color(0xFF9AE6B4), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Text(label, color = color, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         Text(
-            state.nextCue?.titleKo ?: state.activeCue.titleKo,
+            value,
             color = Color.White,
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
