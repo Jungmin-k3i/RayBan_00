@@ -1,6 +1,6 @@
-# RayBan_0.0
+# LumenCue
 
-RayBan_0.0은 실제 콘서트 현장에서 디스플레이가 있는 Meta Ray-Ban Display 계열 스마트글래스를 활용해 관객 경험을 확장하는 Android Compose 앱입니다.
+LumenCue는 실제 콘서트 현장에서 디스플레이가 있는 Meta Ray-Ban Display 계열 스마트글래스를 활용해 관객 경험을 확장하는 Android Compose 앱입니다.
 
 초기 아이디어였던 가상 콘서트보다 현재 방향은 더 현실적인 **콘서트 AR Companion**입니다. 공연을 대체하지 않고, 실제 무대를 보는 관객에게 필요한 순간만 짧은 시각 정보와 참여 큐를 제공합니다.
 
@@ -230,19 +230,19 @@ DB는 우리 앱이 임의로 만든 독립 원본이 아니라, 공연 주최�
 
 ## 프로젝트 구조
 
-- `app/src/main/java/com/k3i/rayban_00/ConcertExperience.kt`: 공연 상태, 셋리스트, AR 큐, HUD 상태, 실시간 번역 HUD 상태, 공통 HUD/AR 객체, HUD 시각 장면, 이벤트 참여 모델
-- `app/src/main/java/com/k3i/rayban_00/MainActivity.kt`: 앱 상태, 화면 전환, 설정, Companion, 게시판, 권한 요청, HUD/AR 객체 프리뷰 렌더링
-- `app/src/main/java/com/k3i/rayban_00/HomeScreen.kt`: 현재 콘서트 동기화 홈, 참여 반응, 콘서트 이벤트
-- `app/src/main/java/com/k3i/rayban_00/UiCommon.kt`: 공통 화면 프레임과 카드 색상/섹션 타이틀
-- `app/src/main/java/com/k3i/rayban_00/AudioEnergyEffect.kt`: 실시간 번역 실험을 위한 Android `AudioRecord` 후보 경로
-- `app/src/main/java/com/k3i/rayban_00/ConcertEventPackageParser.kt`: 주최사 공연 패키지 JSON 파싱과 운영 검증
-- `app/src/main/java/com/k3i/rayban_00/ConcertEventAssets.kt`: 로컬 공연 패키지 로드 리포트와 예비 데이터 전환
-- `app/src/main/java/com/k3i/rayban_00/AppSessionStorage.kt`: 선택 공연, 세션 요약, 이벤트 참여 로컬 저장/복원
-- `app/src/main/java/com/k3i/rayban_00/GlassesHudRenderer.kt`: HUD 렌더러, Toolkit payload, fallback plan
-- `app/src/main/java/com/k3i/rayban_00/GlassesDispatchStorage.kt`: 글래스 HUD dispatch/fallback 기록 로컬 저장/복원
-- `app/src/main/java/com/k3i/rayban_00/ConcertRepository.kt`: 로컬 asset, 원격 API 후보, fallback 데이터를 감싸는 저장소 계약
-- `app/src/main/java/com/k3i/rayban_00/BackendArchitecture.kt`: 제품 배포에 필요한 백엔드/API/DB 요구사항 모델
-- `app/src/main/java/com/k3i/rayban_00/PartnerDataMapping.kt`: 파트너 원본 필드와 앱 패키지 필드의 매핑/검증/배포 차단 모델
+- `app/src/main/java/com/k3i/lumencue/ConcertExperience.kt`: 공연 상태, 셋리스트, AR 큐, HUD 상태, 실시간 번역 HUD 상태, 공통 HUD/AR 객체, HUD 시각 장면, 이벤트 참여 모델
+- `app/src/main/java/com/k3i/lumencue/MainActivity.kt`: 앱 상태, 화면 전환, 설정, Companion, 게시판, 권한 요청, HUD/AR 객체 프리뷰 렌더링
+- `app/src/main/java/com/k3i/lumencue/HomeScreen.kt`: 현재 콘서트 동기화 홈, 참여 반응, 콘서트 이벤트
+- `app/src/main/java/com/k3i/lumencue/UiCommon.kt`: 공통 화면 프레임과 카드 색상/섹션 타이틀
+- `app/src/main/java/com/k3i/lumencue/AudioEnergyEffect.kt`: 실시간 번역 실험을 위한 Android `AudioRecord` 후보 경로
+- `app/src/main/java/com/k3i/lumencue/ConcertEventPackageParser.kt`: 주최사 공연 패키지 JSON 파싱과 운영 검증
+- `app/src/main/java/com/k3i/lumencue/ConcertEventAssets.kt`: 로컬 공연 패키지 로드 리포트와 예비 데이터 전환
+- `app/src/main/java/com/k3i/lumencue/AppSessionStorage.kt`: 선택 공연, 세션 요약, 이벤트 참여 로컬 저장/복원
+- `app/src/main/java/com/k3i/lumencue/GlassesHudRenderer.kt`: HUD 렌더러, Toolkit payload, fallback plan
+- `app/src/main/java/com/k3i/lumencue/GlassesDispatchStorage.kt`: 글래스 HUD dispatch/fallback 기록 로컬 저장/복원
+- `app/src/main/java/com/k3i/lumencue/ConcertRepository.kt`: 로컬 asset, 원격 API 후보, fallback 데이터를 감싸는 저장소 계약
+- `app/src/main/java/com/k3i/lumencue/BackendArchitecture.kt`: 제품 배포에 필요한 백엔드/API/DB 요구사항 모델
+- `app/src/main/java/com/k3i/lumencue/PartnerDataMapping.kt`: 파트너 원본 필드와 앱 패키지 필드의 매핑/검증/배포 차단 모델
 - `docs/concert-event-package.schema.json`: 주최사 제공 공연 패키지 JSON 스키마 초안
 
 ## 빌드
@@ -259,10 +259,10 @@ DB는 우리 앱이 임의로 만든 독립 원본이 아니라, 공연 주최�
 .\gradlew.bat :app:installDebug
 ```
 
-현재 앱 ID는 `com.k3i.rayban_00`이며, 런처 Activity는 `com.k3i.rayban_00/.MainActivity`입니다.
+현재 앱 ID는 `com.k3i.lumencue`이며, 런처 Activity는 `com.k3i.lumencue/.MainActivity`입니다.
 
 ```powershell
-C:\Users\ADMIN\AppData\Local\Android\Sdk\platform-tools\adb.exe shell am start -W -n com.k3i.rayban_00/.MainActivity
+C:\Users\ADMIN\AppData\Local\Android\Sdk\platform-tools\adb.exe shell am start -W -n com.k3i.lumencue/.MainActivity
 ```
 
 단위 테스트 실행:
@@ -316,4 +316,3 @@ $env:JAVA_HOME='C:\Program Files\Eclipse Adoptium\jdk-21.0.11.10-hotspot'
 - [ ] 실제 Android 기기에서 번역/자막 흐름, 화면 크기, 스크롤, 텍스트 잘림 확인
 - [ ] Ray-Ban Display 실기기에서 Meta AI 앱 페어링, DAT 접근 가능성, HUD 출력 가능 범위, 지연 시간 확인
 - [ ] 공연장 환경에서 글래스 HUD가 무대를 방해하지 않는지 시야/밝기/표시 시간 검증
-# RayBan_0.0

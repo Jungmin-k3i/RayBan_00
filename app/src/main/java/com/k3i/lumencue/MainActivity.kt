@@ -1,4 +1,4 @@
-﻿package com.k3i.rayban_00
+package com.k3i.lumencue
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -13,7 +13,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -69,7 +68,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.k3i.rayban_00.ui.theme.RayBan_00Theme
+import com.k3i.lumencue.ui.theme.LumenCueTheme
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
@@ -77,32 +76,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            val context = LocalContext.current
-            var appThemeMode by remember { mutableStateOf(loadAppThemeMode(context)) }
-            val systemDark = isSystemInDarkTheme()
-            val useDarkTheme = when (appThemeMode) {
-                AppThemeMode.System -> systemDark
-                AppThemeMode.Light -> false
-                AppThemeMode.Dark -> true
-            }
-            LaunchedEffect(appThemeMode) {
-                saveAppThemeMode(context, appThemeMode)
-            }
-            RayBan_00Theme(darkTheme = useDarkTheme, dynamicColor = false) {
-                ConcertExperienceApp(
-                    appThemeMode = appThemeMode,
-                    onThemeModeChange = { appThemeMode = it }
-                )
+            LumenCueTheme {
+                ConcertExperienceApp()
             }
         }
     }
 }
 
 @Composable
-fun ConcertExperienceApp(
-    appThemeMode: AppThemeMode,
-    onThemeModeChange: (AppThemeMode) -> Unit
-) {
+fun ConcertExperienceApp() {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val savedSession = remember { loadConcertSession(context) }
@@ -182,7 +164,6 @@ fun ConcertExperienceApp(
         AppScreen.Settings -> ({ screen = settingsReturnScreen })
         AppScreen.SettingsConcert,
         AppScreen.SettingsLanguage,
-        AppScreen.SettingsAppearance,
         AppScreen.SettingsOperations,
         AppScreen.SettingsTechnical -> ({ screen = AppScreen.Settings })
         else -> null
@@ -215,7 +196,6 @@ fun ConcertExperienceApp(
                         AppScreen.Settings -> screen = AppScreen.Settings
                         AppScreen.SettingsConcert -> screen = AppScreen.SettingsConcert
                         AppScreen.SettingsLanguage -> screen = AppScreen.SettingsLanguage
-                        AppScreen.SettingsAppearance -> screen = AppScreen.SettingsAppearance
                         AppScreen.SettingsOperations -> screen = AppScreen.SettingsOperations
                         AppScreen.SettingsTechnical -> screen = AppScreen.SettingsTechnical
                     }
@@ -366,10 +346,8 @@ fun ConcertExperienceApp(
 
                     AppScreen.Settings -> SettingsScreen(
                         language = appLanguage,
-                        themeMode = appThemeMode,
                         onOpenConcert = { screen = AppScreen.SettingsConcert },
-                        onOpenLanguage = { screen = AppScreen.SettingsLanguage },
-                        onOpenAppearance = { screen = AppScreen.SettingsAppearance }
+                        onOpenLanguage = { screen = AppScreen.SettingsLanguage }
                     )
 
                     AppScreen.SettingsConcert -> ConcertSettingsScreen(
@@ -386,13 +364,6 @@ fun ConcertExperienceApp(
                     AppScreen.SettingsLanguage -> LanguageSettingsScreen(
                         language = appLanguage,
                         onLanguageChange = { appLanguage = it },
-                        onBack = { screen = AppScreen.Settings }
-                    )
-
-                    AppScreen.SettingsAppearance -> AppearanceSettingsScreen(
-                        language = appLanguage,
-                        themeMode = appThemeMode,
-                        onThemeModeChange = onThemeModeChange,
                         onBack = { screen = AppScreen.Settings }
                     )
 
@@ -452,10 +423,9 @@ fun ConcertExperienceApp(
 }
 
 private fun AppScreen.isSettingsScreen(): Boolean =
-    this == AppScreen.Settings ||
+        this == AppScreen.Settings ||
         this == AppScreen.SettingsConcert ||
         this == AppScreen.SettingsLanguage ||
-        this == AppScreen.SettingsAppearance ||
         this == AppScreen.SettingsOperations ||
         this == AppScreen.SettingsTechnical
 
@@ -558,7 +528,6 @@ private fun ConcertBottomNavigation(
                     AppScreen.Settings -> Color(0xFF9CA3AF)
                     AppScreen.SettingsConcert -> Color(0xFF9CA3AF)
                     AppScreen.SettingsLanguage -> Color(0xFF9CA3AF)
-                    AppScreen.SettingsAppearance -> Color(0xFF9CA3AF)
                     AppScreen.SettingsOperations -> Color(0xFF9CA3AF)
                     AppScreen.SettingsTechnical -> Color(0xFF9CA3AF)
                 }
@@ -629,7 +598,6 @@ private fun BottomNavItem.label(language: AppLanguage): String =
             AppScreen.Settings -> "Settings"
             AppScreen.SettingsConcert -> "Settings"
             AppScreen.SettingsLanguage -> "Settings"
-            AppScreen.SettingsAppearance -> "Settings"
             AppScreen.SettingsOperations -> "Settings"
             AppScreen.SettingsTechnical -> "Settings"
         }
@@ -1321,10 +1289,8 @@ private fun DatMockDeviceGuideCard(profile: GlassesIntegrationProfile) {
 @Composable
 private fun SettingsScreen(
     language: AppLanguage,
-    themeMode: AppThemeMode,
     onOpenConcert: () -> Unit,
-    onOpenLanguage: () -> Unit,
-    onOpenAppearance: () -> Unit
+    onOpenLanguage: () -> Unit
 ) {
     ScreenFrame {
         VisualEventHeader(
@@ -1347,14 +1313,6 @@ private fun SettingsScreen(
             status = if (language == AppLanguage.Korean) language.nativeLabel else language.englishLabel,
             color = Color(0xFF62D6C4),
             onClick = onOpenLanguage
-        )
-        SettingsCategoryCard(
-            icon = "◐",
-            title = if (language == AppLanguage.Korean) "화면 모드" else "Appearance",
-            description = if (language == AppLanguage.Korean) "시스템, 라이트, 다크 모드를 선택합니다." else "Choose system, light, or dark mode.",
-            status = if (language == AppLanguage.Korean) themeMode.koreanLabel else themeMode.englishLabel,
-            color = Color(0xFF8AB4F8),
-            onClick = onOpenAppearance
         )
     }
 }
@@ -1400,26 +1358,6 @@ private fun LanguageSettingsScreen(
         LanguageSettingsCard(
             selectedLanguage = language,
             onLanguageChange = onLanguageChange
-        )
-    }
-}
-
-@Composable
-private fun AppearanceSettingsScreen(
-    language: AppLanguage,
-    themeMode: AppThemeMode,
-    onThemeModeChange: (AppThemeMode) -> Unit,
-    onBack: () -> Unit
-) {
-    ScreenFrame {
-        SettingsDetailHeader(
-            title = if (language == AppLanguage.Korean) "화면 모드" else "Appearance",
-            subtitle = if (language == AppLanguage.Korean) "공연장 밝기에 맞춰 앱 화면을 조정합니다." else "Adjust the app display for the venue."
-        )
-        AppearanceSettingsCard(
-            language = language,
-            selectedThemeMode = themeMode,
-            onThemeModeChange = onThemeModeChange
         )
     }
 }
@@ -1633,64 +1571,6 @@ private fun LanguageSettingsCard(
         }
     }
 }
-
-@Composable
-private fun AppearanceSettingsCard(
-    language: AppLanguage,
-    selectedThemeMode: AppThemeMode,
-    onThemeModeChange: (AppThemeMode) -> Unit
-) {
-    val ko = language == AppLanguage.Korean
-    Card(colors = darkCard(), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(
-                if (ko) "화면 모드" else "Appearance",
-                color = Color.White,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                if (ko) {
-                    "기본값은 시스템 설정을 따릅니다. 공연장에서는 눈부심을 줄이려면 다크 모드가 적합합니다."
-                } else {
-                    "The default follows your system setting. Dark mode is better for reducing glare in venues."
-                },
-                color = Color(0xFFB8BDC7),
-                fontSize = 12.sp
-            )
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AppThemeMode.entries.forEach { mode ->
-                    val selected = mode == selectedThemeMode
-                    Button(
-                        onClick = { onThemeModeChange(mode) },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (selected) Color(0xFF8AB4F8) else Color(0xFF20242D),
-                            contentColor = Color.White
-                        )
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(themeModeIcon(mode, selected), fontSize = 16.sp)
-                            Text(
-                                if (ko) mode.koreanLabel else mode.englishLabel,
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-private fun themeModeIcon(mode: AppThemeMode, selected: Boolean): String =
-    when (mode) {
-        AppThemeMode.System -> if (selected) "●" else "○"
-        AppThemeMode.Light -> "☀"
-        AppThemeMode.Dark -> "◐"
-    }
 
 private data class ConcertBoardPost(
     val id: String,
@@ -3566,7 +3446,7 @@ private fun ConcertInteractionEventType.eventIcon(): String =
 @Preview(showBackground = true)
 @Composable
 fun ConcertExperiencePreview() {
-    RayBan_00Theme(dynamicColor = false) {
+    LumenCueTheme {
         CompanionScreen(
             state = ConcertState(),
             glassesProfile = defaultGlassesIntegrationProfile(),

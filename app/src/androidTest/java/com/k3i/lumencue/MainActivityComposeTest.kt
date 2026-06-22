@@ -1,4 +1,4 @@
-﻿package com.k3i.rayban_00
+package com.k3i.lumencue
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule

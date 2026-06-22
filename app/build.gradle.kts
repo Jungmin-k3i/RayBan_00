@@ -1,4 +1,4 @@
-﻿import java.util.Properties
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -18,7 +18,7 @@ val hasMetaWearablesDatToken =
         !localProperties.getProperty("github_token").isNullOrBlank()
 
 android {
-    namespace = "com.k3i.rayban_00"
+    namespace = "com.k3i.lumencue"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -26,13 +26,13 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.k3i.rayban_00"
+        applicationId = "com.k3i.lumencue"
         minSdk = 29
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 
-        testApplicationId = "com.k3i.rayban_00.test"
+        testApplicationId = "com.k3i.lumencue.test"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

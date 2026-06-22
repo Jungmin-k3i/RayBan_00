@@ -1,4 +1,4 @@
-﻿package com.k3i.rayban_00
+package com.k3i.lumencue
 
 enum class BackendRuntimeState(val label: String) {
     LocalOnly("로컬 앱"),

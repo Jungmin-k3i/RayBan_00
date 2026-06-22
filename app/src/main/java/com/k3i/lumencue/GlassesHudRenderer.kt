@@ -1,4 +1,4 @@
-﻿package com.k3i.rayban_00
+package com.k3i.lumencue
 
 enum class GlassesRendererAvailability {
     Ready,

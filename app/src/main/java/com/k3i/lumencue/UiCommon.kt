@@ -1,4 +1,4 @@
-﻿package com.k3i.rayban_00
+package com.k3i.lumencue
 
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text

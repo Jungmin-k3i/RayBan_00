@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://rayban-concert.example/schemas/concert-event-package.schema.json",
+  "$id": "https://lumencue.example/schemas/concert-event-package.schema.json",
   "title": "Concert Event Package",
   "type": "object",
   "required": ["id", "title", "partnerBrief", "venueInfo", "ticketPolicy", "tracks", "partnerAssets"],

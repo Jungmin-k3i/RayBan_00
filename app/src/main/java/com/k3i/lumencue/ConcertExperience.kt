@@ -1,4 +1,4 @@
-﻿package com.k3i.rayban_00
+package com.k3i.lumencue
 
 import kotlin.math.roundToInt
 
@@ -21,7 +21,6 @@ enum class AppScreen {
     Settings,
     SettingsConcert,
     SettingsLanguage,
-    SettingsAppearance,
     SettingsOperations,
     SettingsTechnical
 }
@@ -33,15 +32,6 @@ enum class AppLanguage(
 ) {
     Korean("ko", "한국어", "Korean"),
     English("en", "English", "English")
-}
-
-enum class AppThemeMode(
-    val koreanLabel: String,
-    val englishLabel: String
-) {
-    System("시스템 설정", "System"),
-    Light("라이트", "Light"),
-    Dark("다크", "Dark")
 }
 
 enum class PartnerAssetStatus(val label: String) {
@@ -873,7 +863,7 @@ val sampleConcertEvents = listOf(
             merchBooth = "1층 동측 MD 부스"
         ),
         ticket = ConcertTicket(
-            ticketId = "RB-AR-0918-1208",
+            ticketId = "LC-AR-0918-1208",
             holderName = "관객",
             checkedIn = true
         ),

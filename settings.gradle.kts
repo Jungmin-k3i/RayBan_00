@@ -40,5 +40,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "RayBan_0.0"
+rootProject.name = "LumenCue"
 include(":app")

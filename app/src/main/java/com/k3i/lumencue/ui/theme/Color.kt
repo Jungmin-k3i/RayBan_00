@@ -1,4 +1,4 @@
-﻿package com.k3i.rayban_00.ui.theme
+package com.k3i.lumencue.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

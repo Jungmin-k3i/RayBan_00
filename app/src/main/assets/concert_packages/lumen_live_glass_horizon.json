@@ -18,7 +18,7 @@
   "ticketPolicy": {
     "requiresCheckIn": true,
     "provider": "partner-ticket-provider",
-    "ticketId": "RB-AR-0918-1208",
+    "ticketId": "LC-AR-0918-1208",
     "holderName": "Guest",
     "checkedIn": true
   },

@@ -12,7 +12,7 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.RayBan_00">
+        android:theme="@style/Theme.LumenCue">
         <meta-data
             android:name="com.meta.wearable.mwdat.ANALYTICS_OPT_OUT"
             android:value="true" />
@@ -21,7 +21,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
-            android:theme="@style/Theme.RayBan_00"
+            android:theme="@style/Theme.LumenCue"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
