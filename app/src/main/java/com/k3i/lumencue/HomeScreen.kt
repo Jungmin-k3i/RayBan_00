@@ -27,7 +27,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -41,19 +40,12 @@ import androidx.compose.ui.unit.sp
 fun HomeScreen(
     state: ConcertState,
     glassesProfile: GlassesIntegrationProfile,
-    onReaction: (ReactionSignal) -> Unit,
     onInteractionEvent: (ConcertInteractionEvent) -> Unit
 ) {
     ScreenFrame {
-        AudienceHomeHero(
-            state = state,
-            glassesProfile = glassesProfile
-        )
-        LiveSyncPanel(
-            state = state,
-            onReaction = onReaction,
-            onInteractionEvent = onInteractionEvent
-        )
+        AudienceHomeHero(state = state, glassesProfile = glassesProfile)
+        NowPlayingCard(state = state)
+        SpotlightActionCard(state = state, onInteractionEvent = onInteractionEvent)
     }
 }
 
@@ -62,237 +54,187 @@ private fun AudienceHomeHero(
     state: ConcertState,
     glassesProfile: GlassesIntegrationProfile
 ) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF131418)),
-        shape = RoundedCornerShape(8.dp),
-        modifier = Modifier.fillMaxWidth()
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(330.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFF111418))
     ) {
+        Image(
+            painter = painterResource(R.drawable.concert_hero_youth),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.matchParentSize()
+        )
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(310.dp)
-                .background(Color(0xFF111418))
-        ) {
-            Image(
-                painter = painterResource(R.drawable.concert_hero_youth),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.matchParentSize()
-            )
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                Color(0x66050607),
-                                Color(0x22050607),
-                                Color(0xEE050607)
-                            )
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color(0x33050607),
+                            Color(0x22050607),
+                            Color(0xF2050607)
                         )
                     )
-            )
-            LiveStageArtwork(state)
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth()
-                    .padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    LivePill("LIVE", Color(0xFFFFD166))
-                    LivePill(glassesProfile.targetDevice.displayName, Color(0xFF62D6C4))
+                )
+        )
+        LiveStageArtwork(state)
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            LivePill("LIVE", Color(0xFFFFD166))
+            LivePill(glassesProfile.targetDevice.displayName, Color(0xFF62D6C4))
+        }
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(
+                    state.event.title,
+                    color = Color.White,
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.Bold,
+                    lineHeight = 33.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    state.event.venueInfo.name,
+                    color = Color(0xFFD1D5DB),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                HeroMetric(label = "SEAT", value = state.event.venueInfo.seat, color = Color(0xFF62D6C4), modifier = Modifier.weight(1f))
+                HeroMetric(
+                    label = "CHECK",
+                    value = if (state.event.ticket.checkedIn) "입장 완료" else "확인 필요",
+                    color = if (state.event.ticket.checkedIn) Color(0xFF9AE6B4) else Color(0xFFFFD166),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NowPlayingCard(state: ConcertState) {
+    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15181F)), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("NOW", color = Color(0xFF62D6C4), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(state.currentTrack.title, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(state.activeCue.titleKo, color = Color(0xFFB8BDC7), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                EnergyRing(energy = state.fanEnergy)
+            }
+            HomeTrackProgress(state)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                CompactCueTile("현재", state.activeCue.hudMessageKo, Color(0xFFFFD166), Modifier.weight(1f))
+                CompactCueTile("다음", state.nextCue?.titleKo ?: "마지막 큐", Color(0xFF8AB4F8), Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpotlightActionCard(
+    state: ConcertState,
+    onInteractionEvent: (ConcertInteractionEvent) -> Unit
+) {
+    val featuredEvent = state.currentFeaturedInteractionEvent
+    val eventColor = featuredEvent?.type?.interactionColor() ?: state.activeCue.effect.interactionColor()
+    val participation = featuredEvent?.let { state.interactionEventParticipationCounts[it.id] ?: 0 } ?: 0
+
+    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF10161D)), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                LightstickPreview(color = eventColor, energy = state.fanEnergy, modifier = Modifier.weight(0.72f))
+                Column(modifier = Modifier.weight(1.28f), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    LivePill(featuredEvent?.type?.label ?: "대기", eventColor)
                     Text(
-                        state.event.title,
+                        featuredEvent?.titleKo ?: "지금은 무대 집중",
                         color = Color.White,
-                        fontSize = 28.sp,
+                        fontSize = 21.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        "${state.event.venueInfo.name} · ${state.event.venueInfo.seat}",
-                        color = Color(0xFFD1D5DB),
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    HomeInfoBadge(
-                        label = "내 좌석",
-                        value = state.event.venueInfo.seat,
-                        color = Color(0xFF62D6C4),
-                        modifier = Modifier.weight(1f)
-                    )
-                    HomeInfoBadge(
-                        label = "입장 상태",
-                        value = if (state.event.ticket.checkedIn) "확인 완료" else "입장 확인 필요",
-                        color = Color(0xFFFFD166),
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun LiveSyncPanel(
-    state: ConcertState,
-    onReaction: (ReactionSignal) -> Unit,
-    onInteractionEvent: (ConcertInteractionEvent) -> Unit
-) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF171A20)), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text("지금 공연", color = Color(0xFF62D6C4), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Text(state.currentTrack.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(state.currentTrack.artist, color = Color(0xFFB8BDC7), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                Box(
-                    modifier = Modifier
-                        .size(58.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF232733)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("${state.trackIndex + 1}/${state.tracks.size}", color = Color(0xFFFFD166), fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-            HomeTrackProgress(state)
-            InteractionEventPanel(
-                state = state,
-                onReaction = onReaction,
-                onInteractionEvent = onInteractionEvent
-            )
-        }
-    }
-}
-
-@Composable
-private fun InteractionEventPanel(
-    state: ConcertState,
-    onReaction: (ReactionSignal) -> Unit,
-    onInteractionEvent: (ConcertInteractionEvent) -> Unit
-) {
-    val featuredEvent = state.currentFeaturedInteractionEvent
-    val upcomingEvents = state.upcomingInteractionEvents.take(3)
-    val lightstickColor = featuredEvent?.type?.interactionColor() ?: state.activeCue.effect.interactionColor()
-    val featuredParticipationCount = featuredEvent?.let { state.interactionEventParticipationCounts[it.id] ?: 0 } ?: 0
-    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF111820)), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text("라이브 참여 이벤트", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Text("공연 흐름에 맞춰 지금 참여할 타이밍을 알려줍니다.", color = Color(0xFF9CA3AF), fontSize = 11.sp)
-                }
-                Text(featuredEvent?.type?.label ?: "대기", color = lightstickColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                LightstickPreview(color = lightstickColor, energy = state.fanEnergy, modifier = Modifier.weight(0.82f))
-                Column(modifier = Modifier.weight(1.18f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        featuredEvent?.titleKo ?: "다음 참여 이벤트 대기",
-                        color = Color.White,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        featuredEvent?.let { "${it.messageKo} · ${it.zone}" }
-                            ?: "현재 곡의 승인된 참여 이벤트가 아직 없습니다.",
+                        featuredEvent?.messageKo ?: "다음 참여 타이밍이 오면 바로 띄워줄게요.",
                         color = Color(0xFFB8BDC7),
-                        fontSize = 12.sp,
-                        maxLines = 3,
+                        fontSize = 13.sp,
+                        lineHeight = 17.sp,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                     if (featuredEvent != null) {
-                        Text(
-                            "내 참여 ${featuredParticipationCount}회",
-                            color = Color(0xFFFFD166),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = { featuredEvent?.let(onInteractionEvent) },
-                            enabled = featuredEvent != null,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = lightstickColor,
-                                disabledContainerColor = Color(0xFF2B3038),
-                                disabledContentColor = Color(0xFF8B949E)
-                            )
-                        ) {
-                            Text(featuredEvent?.ctaLabel ?: "대기", fontSize = 12.sp)
-                        }
-                        Button(
-                            onClick = { onReaction(ReactionSignal.Cheer) },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE85D75))
-                        ) {
-                            Text("응원", fontSize = 12.sp)
-                        }
+                        Text("내 참여 ${participation}회", color = Color(0xFFFFD166), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
-            if (upcomingEvents.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    Text("다음 이벤트", color = Color(0xFFB8BDC7), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    upcomingEvents.forEach { event ->
-                        InteractionEventRow(event = event, currentTrackIndex = state.trackIndex, elapsedSeconds = state.elapsedSeconds)
-                    }
-                }
+            Button(
+                onClick = { featuredEvent?.let(onInteractionEvent) },
+                enabled = featuredEvent != null,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = eventColor,
+                    disabledContainerColor = Color(0xFF242933),
+                    disabledContentColor = Color(0xFF8B949E)
+                )
+            ) {
+                Text(featuredEvent?.ctaLabel ?: "대기 중", fontSize = 15.sp, fontWeight = FontWeight.Bold)
             }
+            UpcomingStrip(state)
         }
     }
 }
 
 @Composable
-private fun InteractionEventRow(
-    event: ConcertInteractionEvent,
-    currentTrackIndex: Int,
-    elapsedSeconds: Int
-) {
-    val remaining = if (event.trackIndex == currentTrackIndex) {
-        "${formatTime((event.startSecond - elapsedSeconds).coerceAtLeast(0))} 후"
-    } else {
-        "다음 곡"
-    }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xFF1A1F27))
-            .padding(horizontal = 10.dp, vertical = 9.dp),
-        horizontalArrangement = Arrangement.spacedBy(9.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(9.dp)
-                .clip(CircleShape)
-                .background(event.type.interactionColor())
-        )
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(event.titleKo, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(event.type.label, color = Color(0xFF9CA3AF), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+private fun UpcomingStrip(state: ConcertState) {
+    val upcomingEvents = state.upcomingInteractionEvents.take(2)
+    if (upcomingEvents.isEmpty()) return
+
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        upcomingEvents.forEach { event ->
+            val remaining = if (event.trackIndex == state.trackIndex) {
+                "${formatTime((event.startSecond - state.elapsedSeconds).coerceAtLeast(0))} 후"
+            } else {
+                "다음 곡"
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF1A1F27))
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(remaining, color = event.type.interactionColor(), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text(event.titleKo, color = Color.White, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
-        Text(remaining, color = Color(0xFFFFD166), fontSize = 11.sp, fontWeight = FontWeight.Bold)
     }
 }
 
 private fun ConcertInteractionEventType.interactionColor(): Color =
     when (this) {
         ConcertInteractionEventType.CallAndResponse -> Color(0xFFE85D75)
-        ConcertInteractionEventType.FanChant -> Color(0xFFB7791F)
+        ConcertInteractionEventType.FanChant -> Color(0xFFFFD166)
         ConcertInteractionEventType.LightstickWave -> Color(0xFF2F80ED)
         ConcertInteractionEventType.Surprise -> Color(0xFFB794F4)
         ConcertInteractionEventType.EncoreGauge -> Color(0xFFFFD166)
@@ -321,13 +263,13 @@ private fun LightstickPreview(
 ) {
     Box(
         modifier = modifier
-            .height(138.dp)
+            .height(152.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(Brush.verticalGradient(listOf(Color(0xFF1B1F28), Color(0xFF0B0D12)))),
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.matchParentSize()) {
-            val center = Offset(size.width * 0.5f, size.height * 0.37f)
+            val center = Offset(size.width * 0.5f, size.height * 0.35f)
             val pulse = (energy / 100f).coerceIn(0.2f, 1f)
             drawCircle(color.copy(alpha = 0.14f), radius = 58f + pulse * 18f, center = center)
             drawCircle(color.copy(alpha = 0.32f), radius = 38f + pulse * 10f, center = center)
@@ -356,7 +298,7 @@ private fun HomeTrackProgress(state: ConcertState) {
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("${formatTime(state.elapsedSeconds)} / ${formatTime(state.currentTrack.durationSeconds)}", color = Color(0xFFB8BDC7), fontSize = 12.sp)
-            Text("${state.trackIndex + 1}/${state.tracks.size}", color = Color(0xFFFFD166), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text("${(state.progress * 100).toInt().coerceIn(0, 100)}%", color = Color(0xFFFFD166), fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
         Box(
             modifier = Modifier
@@ -369,7 +311,7 @@ private fun HomeTrackProgress(state: ConcertState) {
                 modifier = Modifier
                     .fillMaxWidth(state.progress)
                     .height(9.dp)
-                    .background(Brush.horizontalGradient(listOf(Color(0xFF62D6C4), Color(0xFFE85D75))))
+                    .background(Brush.horizontalGradient(listOf(Color(0xFF62D6C4), Color(0xFFE85D75), Color(0xFFFFD166))))
             )
         }
     }
@@ -377,41 +319,31 @@ private fun HomeTrackProgress(state: ConcertState) {
 
 @Composable
 private fun LiveStageArtwork(state: ConcertState) {
-    Canvas(modifier = Modifier.fillMaxWidth().height(230.dp)) {
+    Canvas(modifier = Modifier.fillMaxWidth().height(240.dp)) {
         val width = size.width
         val height = size.height
         val energy = state.fanEnergy / 100f
 
-        val beam = Path().apply {
-            moveTo(width * 0.18f, 0f)
-            lineTo(width * 0.5f, height * 0.8f)
-            lineTo(width * 0.82f, 0f)
-            close()
-        }
-        drawPath(beam, Color.White.copy(alpha = 0.08f))
-
         repeat(18) { index ->
             val x = width * (index + 1) / 19f
-            val barHeight = 20f + ((index * 17 + state.fanEnergy) % 75)
+            val barHeight = 18f + ((index * 17 + state.fanEnergy) % 80)
             drawLine(
-                color = if (index % 3 == 0) Color(0xFFFFD166).copy(alpha = 0.72f) else Color(0xFF62D6C4).copy(alpha = 0.58f),
-                start = Offset(x, height - 18f),
-                end = Offset(x, height - 18f - barHeight),
+                color = when (index % 4) {
+                    0 -> Color(0xFFFFD166).copy(alpha = 0.66f)
+                    1 -> Color(0xFF62D6C4).copy(alpha = 0.58f)
+                    2 -> Color(0xFFE85D75).copy(alpha = 0.54f)
+                    else -> Color(0xFF8AB4F8).copy(alpha = 0.52f)
+                },
+                start = Offset(x, height - 22f),
+                end = Offset(x, height - 22f - barHeight),
                 strokeWidth = 7f,
                 cap = androidx.compose.ui.graphics.StrokeCap.Round
             )
         }
-
-        drawLine(
-            color = Color.White.copy(alpha = 0.35f),
-            start = Offset(width * 0.18f, height * 0.78f),
-            end = Offset(width * 0.82f, height * 0.78f),
-            strokeWidth = 3f
-        )
         drawCircle(
-            color = Color.Transparent,
-            radius = 42f + energy * 16f,
-            center = Offset(width * 0.5f, height * 0.68f),
+            color = Color(0x33FFD166),
+            radius = 42f + energy * 54f,
+            center = Offset(width * 0.5f, height * 0.62f),
             style = Stroke(width = 5f)
         )
     }
@@ -422,43 +354,18 @@ private fun LivePill(label: String, color: Color) {
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xBB050607))
+            .background(Color(0xC7050607))
             .padding(horizontal = 9.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(color))
         Spacer(modifier = Modifier.width(6.dp))
-        Text(label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        Text(label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
-private fun HomeHudCueProgress(progress: Float) {
-    val percent = (progress * 100).toInt().coerceIn(0, 100)
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("현재 곡 진행", color = Color(0xFFE5E7EB), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            Text("$percent%", color = Color(0xFFFFD166), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(8.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFF2E333D))
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(progress.coerceIn(0f, 1f))
-                    .height(8.dp)
-                    .background(Brush.horizontalGradient(listOf(Color(0xFF62D6C4), Color(0xFF8AB4F8), Color(0xFFFFD166))))
-            )
-        }
-    }
-}
-
-@Composable
-private fun HomeInfoBadge(
+private fun HeroMetric(
     label: String,
     value: String,
     color: Color,
@@ -467,19 +374,51 @@ private fun HomeInfoBadge(
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xDD202329))
-            .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+            .background(Color(0xE31B1F27))
+            .padding(11.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
-        Text(label, color = color, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-        Text(
-            value,
-            color = Color.White,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        Text(label, color = color, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        Text(value, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun CompactCueTile(
+    label: String,
+    value: String,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFF20252E))
+            .padding(11.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(label, color = color, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Text(value, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun EnergyRing(energy: Int) {
+    Box(modifier = Modifier.size(66.dp), contentAlignment = Alignment.Center) {
+        Canvas(modifier = Modifier.matchParentSize()) {
+            drawCircle(Color(0xFF2A303A), style = Stroke(width = 8f))
+            drawArc(
+                color = Color(0xFFFFD166),
+                startAngle = -90f,
+                sweepAngle = 360f * (energy / 100f).coerceIn(0f, 1f),
+                useCenter = false,
+                style = Stroke(width = 8f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            )
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(energy.toString(), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text("HYPE", color = Color(0xFFFFD166), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }
 

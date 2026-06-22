@@ -14,6 +14,7 @@ enum class AppScreen {
     Readiness,
     Detail,
     Translation,
+    TranslationDetail,
     Companion,
     Board,
     BoardEventPosts,
@@ -32,6 +33,19 @@ enum class AppLanguage(
 ) {
     Korean("ko", "한국어", "Korean"),
     English("en", "English", "English")
+}
+
+enum class TranslationTargetLanguage(
+    val code: String,
+    val shortLabel: String,
+    val nativeLabel: String,
+    val preparedFeedReady: Boolean
+) {
+    Korean("ko", "KO", "한국어", true),
+    English("en", "EN", "English", true),
+    Japanese("ja", "JA", "日本語", false),
+    ChineseSimplified("zh", "ZH", "简体中文", false),
+    Spanish("es", "ES", "Español", false)
 }
 
 enum class PartnerAssetStatus(val label: String) {
@@ -486,21 +500,29 @@ data class ConcertState(
         )
 
     val liveTranslation: LiveTranslationState
-        get() {
+        get() = liveTranslationFor(TranslationTargetLanguage.Korean)
+
+    fun liveTranslationFor(targetLanguage: TranslationTargetLanguage): LiveTranslationState {
             val source = when {
                 activeCue.effect == HudEffect.Caption -> TranslationInputSource.OfficialAudioFeed
                 micEnabled -> TranslationInputSource.PhoneMicExperimental
                 else -> TranslationInputSource.PreparedSubtitleFeed
             }
+            val preparedTranslationText = activeCue.preparedTranslationTextFor(targetLanguage)
             val input = TranslationInput(
                 source = source,
                 sourceLanguage = "EN",
-                targetLanguage = "KO",
+                targetLanguage = targetLanguage.shortLabel,
                 originalText = activeCue.hudMessageEn,
-                preparedTranslationText = activeCue.hudMessageKo,
+                preparedTranslationText = preparedTranslationText,
                 micLevel = audioEnergy
             )
             val result = defaultLiveTranslationEngineChain.translate(input)
+            val fallbackReason = if (targetLanguage.preparedFeedReady) {
+                result.fallbackReason
+            } else {
+                "${targetLanguage.nativeLabel}는 번역 엔진 연결 전까지 영어 원문으로 미리보기합니다."
+            }
             return LiveTranslationState(
                 source = result.source,
                 stage = result.stage,
@@ -513,9 +535,9 @@ data class ConcertState(
                 confidencePercent = result.confidencePercent,
                 policyNote = result.policyNote,
                 engineName = result.engineName,
-                fallbackReason = result.fallbackReason
+                fallbackReason = fallbackReason
             )
-        }
+    }
 
     val recap: ConcertRecap
         get() = ConcertRecap(
@@ -529,6 +551,15 @@ data class ConcertState(
             highlights = recapHighlights.takeLast(6)
         )
 }
+
+private fun ConcertCue.preparedTranslationTextFor(targetLanguage: TranslationTargetLanguage): String =
+    when (targetLanguage) {
+        TranslationTargetLanguage.Korean -> hudMessageKo
+        TranslationTargetLanguage.English -> hudMessageEn
+        TranslationTargetLanguage.Japanese,
+        TranslationTargetLanguage.ChineseSimplified,
+        TranslationTargetLanguage.Spanish -> hudMessageEn
+    }
 
 private fun String.toHudSummary(maxChars: Int = 34): String =
     if (length <= maxChars) this else take(maxChars - 1).trimEnd() + "…"

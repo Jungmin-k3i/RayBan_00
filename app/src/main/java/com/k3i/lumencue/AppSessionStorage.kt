@@ -19,6 +19,7 @@ private const val KEY_COMPLETED_TRACKS = "completed_tracks"
 private const val KEY_INTERACTION_EVENT_COUNTS = "interaction_event_counts"
 private const val KEY_LAST_INTERACTION_EVENT_ID = "last_interaction_event_id"
 private const val KEY_LANGUAGE = "language"
+private const val KEY_TRANSLATION_TARGET_LANGUAGE = "translation_target_language"
 
 fun loadConcertSession(context: Context): SavedConcertSession {
     val prefs = context.getSharedPreferences(SESSION_PREFS, Context.MODE_PRIVATE)
@@ -84,6 +85,20 @@ fun saveAppLanguage(context: Context, language: AppLanguage) {
     context.getSharedPreferences(SESSION_PREFS, Context.MODE_PRIVATE)
         .edit()
         .putString(KEY_LANGUAGE, language.name)
+        .apply()
+}
+
+fun loadTranslationTargetLanguage(context: Context): TranslationTargetLanguage {
+    val prefs = context.getSharedPreferences(SESSION_PREFS, Context.MODE_PRIVATE)
+    return prefs.getString(KEY_TRANSLATION_TARGET_LANGUAGE, TranslationTargetLanguage.Korean.name)
+        ?.let { runCatching { TranslationTargetLanguage.valueOf(it) }.getOrNull() }
+        ?: TranslationTargetLanguage.Korean
+}
+
+fun saveTranslationTargetLanguage(context: Context, language: TranslationTargetLanguage) {
+    context.getSharedPreferences(SESSION_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString(KEY_TRANSLATION_TARGET_LANGUAGE, language.name)
         .apply()
 }
 
