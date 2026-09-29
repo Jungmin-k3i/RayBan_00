@@ -22,6 +22,16 @@
     "holderName": "Guest",
     "checkedIn": true
   },
+  "translationPolicy": {
+    "maxHudLatencyMillis": 2500,
+    "minimumConfidencePercent": 75,
+    "tone": "Natural",
+    "audioCapturePolicy": "UserInitiatedOnly",
+    "sensitiveContentOnPhoneOnly": true,
+    "preferredTerms": {
+      "Lumen": "LUMEN"
+    }
+  },
   "tracks": [
     {
       "title": "Neon Signal",

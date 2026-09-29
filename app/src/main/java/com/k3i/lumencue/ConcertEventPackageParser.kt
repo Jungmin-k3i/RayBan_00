@@ -35,6 +35,15 @@ object ConcertEventPackageParser {
             val ticketPolicy = root.requireObject("ticketPolicy", errors)
             ticketPolicy?.requireStrings("ticketPolicy", listOf("provider"), errors)
 
+            if (root.has("translationPolicy") && !root.isNull("translationPolicy")) {
+                val translationPolicy = root.optJSONObject("translationPolicy")
+                if (translationPolicy == null) {
+                    errors += "invalid:translationPolicy"
+                } else {
+                    translationPolicy.validateTranslationPolicy(errors)
+                }
+            }
+
             val tracks = root.requireArray("tracks", errors)
             if (tracks != null) {
                 if (tracks.length() == 0) errors += "empty:tracks"
@@ -101,14 +110,17 @@ object ConcertEventPackageParser {
             ticket = ConcertTicket(
                 ticketId = ticketPolicy.optString("ticketId", "${root.getString("id")}-ticket"),
                 holderName = ticketPolicy.optString("holderName", "관객"),
-                checkedIn = ticketPolicy.optBoolean("checkedIn", !ticketPolicy.optBoolean("requiresCheckIn", true))
+                checkedIn = ticketPolicy.optBoolean("checkedIn", !ticketPolicy.optBoolean("requiresCheckIn", true)),
+                provider = ticketPolicy.getString("provider")
             ),
             tracks = root.getJSONArray("tracks").toTracks(),
             partnerAssets = root.getJSONArray("partnerAssets").toPartnerAssets(),
             operationsChecklist = root.optJSONArray("operationsChecklist")?.toOperationsChecklist()
                 ?: emptyList(),
             interactionEvents = root.optJSONArray("interactionEvents")?.toInteractionEvents()
-                ?: emptyList()
+                ?: emptyList(),
+            translationPolicy = root.optJSONObject("translationPolicy")?.toTranslationOperationalPolicy()
+                ?: TranslationOperationalPolicy()
         )
     }
 
@@ -196,6 +208,56 @@ private fun JSONArray.validateCues(trackPath: String, trackDurationSeconds: Int,
 
         cue.validateEnum("placement", HudPlacement.entries.map { it.name }, cuePath, errors)
         cue.validateEnum("effect", HudEffect.entries.map { it.name }, cuePath, errors)
+        if (cue.has("translationContentRisk")) {
+            cue.validateEnum(
+                "translationContentRisk",
+                TranslationContentRisk.entries.map { it.name },
+                cuePath,
+                errors
+            )
+        }
+    }
+}
+
+private fun JSONObject.validateTranslationPolicy(errors: MutableList<String>) {
+    opt("maxHudLatencyMillis")?.let { value ->
+        if (value !is Number || value.toInt() <= 0) {
+            errors += "invalid:translationPolicy.maxHudLatencyMillis"
+        }
+    }
+    opt("minimumConfidencePercent")?.let { value ->
+        if (value !is Number || value.toInt() !in 0..100) {
+            errors += "invalid:translationPolicy.minimumConfidencePercent"
+        }
+    }
+    if (has("tone")) {
+        validateEnum("tone", TranslationTone.entries.map { it.name }, "translationPolicy", errors)
+    }
+    if (has("audioCapturePolicy")) {
+        validateEnum(
+            "audioCapturePolicy",
+            VenueAudioCapturePolicy.entries.map { it.name },
+            "translationPolicy",
+            errors
+        )
+    }
+    opt("sensitiveContentOnPhoneOnly")?.let { value ->
+        if (value !is Boolean) errors += "invalid:translationPolicy.sensitiveContentOnPhoneOnly"
+    }
+    if (has("preferredTerms") && !isNull("preferredTerms")) {
+        val terms = optJSONObject("preferredTerms")
+        if (terms == null) {
+            errors += "invalid:translationPolicy.preferredTerms"
+        } else {
+            val keys = terms.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val value = terms.opt(key)
+                if (key.isBlank() || value !is String || value.isBlank()) {
+                    errors += "invalid:translationPolicy.preferredTerms.$key"
+                }
+            }
+        }
     }
 }
 
@@ -316,11 +378,41 @@ private fun JSONArray.toCues(): List<ConcertCue> =
                     hudMessageEn = item.getString("hudMessageEn"),
                     placement = enumValueOf(item.getString("placement")),
                     effect = enumValueOf(item.getString("effect")),
-                    durationMillis = item.optInt("durationMillis", 3_000)
+                    durationMillis = item.optInt("durationMillis", 3_000),
+                    translationContentRisk = item.optString("translationContentRisk")
+                        .takeIf { it.isNotBlank() }
+                        ?.let { enumValueOf<TranslationContentRisk>(it) }
+                        ?: TranslationContentRisk.Standard
                 )
             )
         }
     }
+
+private fun JSONObject.toTranslationOperationalPolicy(): TranslationOperationalPolicy {
+    val terms = buildMap {
+        optJSONObject("preferredTerms")?.let { source ->
+            val keys = source.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                put(key, source.getString(key))
+            }
+        }
+    }
+    return TranslationOperationalPolicy(
+        maxHudLatencyMillis = optInt("maxHudLatencyMillis", 2_500),
+        minimumConfidencePercent = optInt("minimumConfidencePercent", 75),
+        tone = optString("tone")
+            .takeIf { it.isNotBlank() }
+            ?.let { enumValueOf<TranslationTone>(it) }
+            ?: TranslationTone.Natural,
+        audioCapturePolicy = optString("audioCapturePolicy")
+            .takeIf { it.isNotBlank() }
+            ?.let { enumValueOf<VenueAudioCapturePolicy>(it) }
+            ?: VenueAudioCapturePolicy.UserInitiatedOnly,
+        sensitiveContentOnPhoneOnly = optBoolean("sensitiveContentOnPhoneOnly", true),
+        preferredTerms = terms
+    )
+}
 
 private fun JSONArray.toPartnerAssets(): List<PartnerAsset> =
     buildList {

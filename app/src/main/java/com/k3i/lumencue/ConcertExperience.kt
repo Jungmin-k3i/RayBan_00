@@ -155,7 +155,8 @@ data class TranslationInput(
     val targetLanguage: String,
     val originalText: String,
     val preparedTranslationText: String,
-    val micLevel: Int
+    val micLevel: Int,
+    val contentRisk: TranslationContentRisk = TranslationContentRisk.Standard
 )
 
 data class TranslationResult(
@@ -169,6 +170,108 @@ data class TranslationResult(
     val engineName: String,
     val fallbackReason: String? = null
 )
+
+enum class TranslationContentRisk(val label: String) {
+    Standard("일반"),
+    Ambiguous("오역 주의"),
+    Sensitive("민감 표현")
+}
+
+enum class TranslationTone(val label: String) {
+    Natural("자연스러운 말투"),
+    Formal("격식 있는 말투")
+}
+
+enum class VenueAudioCapturePolicy(val label: String) {
+    Prohibited("마이크 사용 금지"),
+    UserInitiatedOnly("사용자 시작만 허용"),
+    Allowed("마이크 사용 허용")
+}
+
+enum class TranslationDisplayAction(val label: String) {
+    ShowHud("HUD 표시"),
+    ShowWithCaution("주의 표시"),
+    UsePreparedSubtitle("사전 자막 대체"),
+    PhoneOnly("스마트폰 확인"),
+    HideHud("HUD 숨김")
+}
+
+data class TranslationPolicyDecision(
+    val action: TranslationDisplayAction,
+    val reason: String,
+    val tone: TranslationTone
+)
+
+data class TranslationOperationalPolicy(
+    val maxHudLatencyMillis: Int = 2_500,
+    val minimumConfidencePercent: Int = 75,
+    val tone: TranslationTone = TranslationTone.Natural,
+    val audioCapturePolicy: VenueAudioCapturePolicy = VenueAudioCapturePolicy.UserInitiatedOnly,
+    val sensitiveContentOnPhoneOnly: Boolean = true,
+    val preferredTerms: Map<String, String> = emptyMap()
+) {
+    init {
+        require(maxHudLatencyMillis > 0) { "maxHudLatencyMillis must be positive" }
+        require(minimumConfidencePercent in 0..100) {
+            "minimumConfidencePercent must be between 0 and 100"
+        }
+    }
+
+    fun applyPreferredTerms(text: String): String =
+        preferredTerms.entries.filter { it.key.isNotBlank() }.fold(text) { updated, (source, preferred) ->
+            updated.replace(source, preferred, ignoreCase = true)
+        }
+
+    fun evaluate(
+        result: TranslationResult,
+        contentRisk: TranslationContentRisk,
+        preparedSubtitleAvailable: Boolean
+    ): TranslationPolicyDecision {
+        val action: TranslationDisplayAction
+        val reason: String
+        when {
+            result.hudSummary.isBlank() -> {
+                action = TranslationDisplayAction.HideHud
+                reason = "표시할 번역 요약이 없어 HUD를 비웁니다."
+            }
+            result.source == TranslationInputSource.PhoneMicExperimental &&
+                audioCapturePolicy == VenueAudioCapturePolicy.Prohibited -> {
+                action = if (preparedSubtitleAvailable) {
+                    TranslationDisplayAction.UsePreparedSubtitle
+                } else {
+                    TranslationDisplayAction.PhoneOnly
+                }
+                reason = "공연장 녹음 정책에 따라 휴대폰 마이크를 끄고 허용된 대체 경로를 사용합니다."
+            }
+            contentRisk == TranslationContentRisk.Sensitive && sensitiveContentOnPhoneOnly -> {
+                action = TranslationDisplayAction.PhoneOnly
+                reason = "민감 표현은 맥락을 함께 확인할 수 있도록 스마트폰에서만 보여줍니다."
+            }
+            result.estimatedLatencyMillis > maxHudLatencyMillis -> {
+                action = if (preparedSubtitleAvailable) {
+                    TranslationDisplayAction.UsePreparedSubtitle
+                } else {
+                    TranslationDisplayAction.PhoneOnly
+                }
+                reason = if (preparedSubtitleAvailable) {
+                    "예상 지연이 ${maxHudLatencyMillis}ms 기준을 넘어 사전 자막으로 전환합니다."
+                } else {
+                    "예상 지연이 ${maxHudLatencyMillis}ms 기준을 넘고 준비된 자막이 없어 스마트폰에서 확인합니다."
+                }
+            }
+            contentRisk == TranslationContentRisk.Ambiguous ||
+                result.confidencePercent < minimumConfidencePercent -> {
+                action = TranslationDisplayAction.ShowWithCaution
+                reason = "오역 가능성이 있어 단정하지 않는 요약으로 표시합니다."
+            }
+            else -> {
+                action = TranslationDisplayAction.ShowHud
+                reason = "지연과 신뢰도 기준을 충족해 HUD에 표시합니다."
+            }
+        }
+        return TranslationPolicyDecision(action = action, reason = reason, tone = tone)
+    }
+}
 
 interface LiveTranslationEngine {
     val name: String
@@ -189,7 +292,8 @@ data class LiveTranslationState(
     val confidencePercent: Int,
     val policyNote: String,
     val engineName: String,
-    val fallbackReason: String? = null
+    val fallbackReason: String? = null,
+    val policyDecision: TranslationPolicyDecision
 )
 
 enum class TranslationProviderRole(val label: String) {
@@ -348,7 +452,8 @@ data class ConcertCue(
     val hudMessageEn: String,
     val placement: HudPlacement,
     val effect: HudEffect,
-    val durationMillis: Int = 3_000
+    val durationMillis: Int = 3_000,
+    val translationContentRisk: TranslationContentRisk = TranslationContentRisk.Standard
 )
 
 data class ConcertTrack(
@@ -392,7 +497,21 @@ data class VenueInfo(
 data class ConcertTicket(
     val ticketId: String,
     val holderName: String,
-    val checkedIn: Boolean
+    val checkedIn: Boolean,
+    val provider: String = "local-sample"
+)
+
+enum class EmergencyNoticeSeverity {
+    Warning,
+    Critical
+}
+
+data class EmergencyNotice(
+    val id: String,
+    val severity: EmergencyNoticeSeverity,
+    val messageKo: String,
+    val messageEn: String,
+    val expiresAt: String
 )
 
 data class ConcertEvent(
@@ -405,7 +524,9 @@ data class ConcertEvent(
     val tracks: List<ConcertTrack>,
     val partnerAssets: List<PartnerAsset>,
     val operationsChecklist: List<OperationsChecklistItem>,
-    val interactionEvents: List<ConcertInteractionEvent> = emptyList()
+    val interactionEvents: List<ConcertInteractionEvent> = emptyList(),
+    val translationPolicy: TranslationOperationalPolicy = TranslationOperationalPolicy(),
+    val emergencyNotice: EmergencyNotice? = null
 )
 
 enum class BoardAccessDecision(val label: String) {
@@ -486,7 +607,24 @@ data class ConcertState(
         get() = activeInteractionEvents.firstOrNull() ?: upcomingInteractionEvents.firstOrNull()
 
     val hudState: HudState
-        get() = HudState(
+        get() = event.emergencyNotice?.let { notice ->
+            HudState(
+                energyPercent = fanEnergy,
+                primaryKo = notice.messageKo,
+                primaryEn = notice.messageEn,
+                secondary = if (notice.severity == EmergencyNoticeSeverity.Critical) {
+                    "긴급 안전 공지"
+                } else {
+                    "공연장 운영 공지"
+                },
+                micLevel = 0,
+                placement = HudPlacement.LowerEdge,
+                effect = HudEffect.Caption,
+                durationMillis = if (notice.severity == EmergencyNoticeSeverity.Critical) 6_000 else 5_000,
+                priority = HudPriority.High,
+                accessibleSummary = "${notice.severity.name} 공지. ${notice.messageKo}"
+            )
+        } ?: HudState(
             energyPercent = fanEnergy,
             primaryKo = activeCue.hudMessageKo,
             primaryEn = activeCue.hudMessageEn,
@@ -508,16 +646,24 @@ data class ConcertState(
                 micEnabled -> TranslationInputSource.PhoneMicExperimental
                 else -> TranslationInputSource.PreparedSubtitleFeed
             }
-            val preparedTranslationText = activeCue.preparedTranslationTextFor(targetLanguage)
+            val preparedTranslationText = event.translationPolicy.applyPreferredTerms(
+                activeCue.preparedTranslationTextFor(targetLanguage)
+            )
             val input = TranslationInput(
                 source = source,
                 sourceLanguage = "EN",
                 targetLanguage = targetLanguage.shortLabel,
                 originalText = activeCue.hudMessageEn,
                 preparedTranslationText = preparedTranslationText,
-                micLevel = audioEnergy
+                micLevel = audioEnergy,
+                contentRisk = activeCue.translationContentRisk
             )
             val result = defaultLiveTranslationEngineChain.translate(input)
+            val policyDecision = event.translationPolicy.evaluate(
+                result = result,
+                contentRisk = input.contentRisk,
+                preparedSubtitleAvailable = targetLanguage.preparedFeedReady
+            )
             val fallbackReason = if (targetLanguage.preparedFeedReady) {
                 result.fallbackReason
             } else {
@@ -535,7 +681,8 @@ data class ConcertState(
                 confidencePercent = result.confidencePercent,
                 policyNote = result.policyNote,
                 engineName = result.engineName,
-                fallbackReason = fallbackReason
+                fallbackReason = fallbackReason,
+                policyDecision = policyDecision
             )
     }
 
@@ -709,6 +856,182 @@ data class HudRenderInstruction(
     val assistiveText: String,
     val visualScene: HudVisualScene
 )
+
+enum class LensCaptionCheckType(val label: String) {
+    ContentLength("자막 길이"),
+    LineCount("예상 줄 수"),
+    SafeArea("안전 영역"),
+    DisplayDuration("표시 시간"),
+    TranslationPolicy("번역 정책")
+}
+
+enum class LensCaptionCheckSeverity(val label: String) {
+    Passed("정상"),
+    Warning("주의"),
+    Blocker("차단")
+}
+
+data class LensCaptionCheck(
+    val type: LensCaptionCheckType,
+    val severity: LensCaptionCheckSeverity,
+    val message: String
+)
+
+data class LensCaptionValidationPolicy(
+    val maxCharacters: Int = 34,
+    val maxLines: Int = 2,
+    val lowerThirdCharactersPerLine: Int = 22,
+    val rightCornerCharactersPerLine: Int = 14,
+    val readingCharactersPerSecond: Int = 8,
+    val readingLeadMillis: Int = 500,
+    val minimumDurationMillis: Int = 2_000,
+    val maximumDurationMillis: Int = 6_000
+) {
+    init {
+        require(maxCharacters > 0)
+        require(maxLines > 0)
+        require(lowerThirdCharactersPerLine > 0)
+        require(rightCornerCharactersPerLine > 0)
+        require(readingCharactersPerSecond > 0)
+        require(readingLeadMillis >= 0)
+        require(minimumDurationMillis > 0)
+        require(maximumDurationMillis >= minimumDurationMillis)
+    }
+}
+
+data class LensCaptionValidationReport(
+    val applicable: Boolean,
+    val characterCount: Int,
+    val estimatedLineCount: Int,
+    val estimatedReadingMillis: Int,
+    val checks: List<LensCaptionCheck>
+) {
+    val overallSeverity: LensCaptionCheckSeverity
+        get() = checks.maxByOrNull { it.severity.ordinal }?.severity
+            ?: LensCaptionCheckSeverity.Passed
+
+    val canDispatch: Boolean
+        get() = checks.none { it.severity == LensCaptionCheckSeverity.Blocker }
+}
+
+fun HudRenderInstruction.validateLensCaption(
+    translation: LiveTranslationState? = null,
+    policy: LensCaptionValidationPolicy = LensCaptionValidationPolicy()
+): LensCaptionValidationReport {
+    if (visualScene.arObjectKey != HudArObjectKey.CaptionLine) {
+        return LensCaptionValidationReport(
+            applicable = false,
+            characterCount = 0,
+            estimatedLineCount = 0,
+            estimatedReadingMillis = 0,
+            checks = emptyList()
+        )
+    }
+
+    val captionText = translation?.hudSummary?.takeIf { it.isNotBlank() } ?: textKo
+    val characterCount = captionText.count { !it.isWhitespace() }
+    val charactersPerLine = when (visualScene.safeAreaHint) {
+        "right-corner" -> policy.rightCornerCharactersPerLine
+        else -> policy.lowerThirdCharactersPerLine
+    }
+    val estimatedLineCount = captionText.lines().sumOf { line ->
+        maxOf(1, (line.length + charactersPerLine - 1) / charactersPerLine)
+    }
+    val estimatedReadingMillis = maxOf(
+        policy.minimumDurationMillis,
+        policy.readingLeadMillis +
+            ((characterCount * 1_000 + policy.readingCharactersPerSecond - 1) /
+                policy.readingCharactersPerSecond)
+    )
+    val checks = buildList {
+        add(
+            LensCaptionCheck(
+                type = LensCaptionCheckType.ContentLength,
+                severity = when {
+                    captionText.isBlank() -> LensCaptionCheckSeverity.Blocker
+                    characterCount > policy.maxCharacters -> LensCaptionCheckSeverity.Blocker
+                    else -> LensCaptionCheckSeverity.Passed
+                },
+                message = when {
+                    captionText.isBlank() -> "표시할 자막이 없습니다."
+                    characterCount > policy.maxCharacters ->
+                        "공백 제외 ${characterCount}자로 ${policy.maxCharacters}자 기준을 넘습니다."
+                    else -> "공백 제외 ${characterCount}/${policy.maxCharacters}자입니다."
+                }
+            )
+        )
+        add(
+            LensCaptionCheck(
+                type = LensCaptionCheckType.LineCount,
+                severity = if (estimatedLineCount > policy.maxLines) {
+                    LensCaptionCheckSeverity.Blocker
+                } else {
+                    LensCaptionCheckSeverity.Passed
+                },
+                message = "현재 폭에서 약 ${estimatedLineCount}/${policy.maxLines}줄입니다."
+            )
+        )
+        val safeAreaAccepted = visualScene.safeAreaHint == "lower-third" ||
+            visualScene.safeAreaHint == "right-corner"
+        add(
+            LensCaptionCheck(
+                type = LensCaptionCheckType.SafeArea,
+                severity = if (safeAreaAccepted) {
+                    LensCaptionCheckSeverity.Passed
+                } else {
+                    LensCaptionCheckSeverity.Blocker
+                },
+                message = if (safeAreaAccepted) {
+                    "${visualScene.safeAreaHint} 자막 안전 영역을 사용합니다."
+                } else {
+                    "${visualScene.safeAreaHint}은 자막 표시 영역으로 허용되지 않습니다."
+                }
+            )
+        )
+        val durationAccepted = durationMillis in policy.minimumDurationMillis..policy.maximumDurationMillis &&
+            durationMillis >= estimatedReadingMillis
+        add(
+            LensCaptionCheck(
+                type = LensCaptionCheckType.DisplayDuration,
+                severity = if (durationAccepted) {
+                    LensCaptionCheckSeverity.Passed
+                } else {
+                    LensCaptionCheckSeverity.Warning
+                },
+                message = when {
+                    durationMillis < estimatedReadingMillis ->
+                        "${durationMillis}ms 표시는 예상 읽기 시간 ${estimatedReadingMillis}ms보다 짧습니다."
+                    durationMillis > policy.maximumDurationMillis ->
+                        "${durationMillis}ms 표시는 시야 방해를 줄이기 위한 ${policy.maximumDurationMillis}ms 기준을 넘습니다."
+                    else -> "${durationMillis}ms 표시 시간이 기준에 맞습니다."
+                }
+            )
+        )
+        translation?.let { state ->
+            val severity = when (state.policyDecision.action) {
+                TranslationDisplayAction.ShowHud -> LensCaptionCheckSeverity.Passed
+                TranslationDisplayAction.ShowWithCaution,
+                TranslationDisplayAction.UsePreparedSubtitle -> LensCaptionCheckSeverity.Warning
+                TranslationDisplayAction.PhoneOnly,
+                TranslationDisplayAction.HideHud -> LensCaptionCheckSeverity.Blocker
+            }
+            add(
+                LensCaptionCheck(
+                    type = LensCaptionCheckType.TranslationPolicy,
+                    severity = severity,
+                    message = "${state.policyDecision.action.label}: ${state.policyDecision.reason}"
+                )
+            )
+        }
+    }
+    return LensCaptionValidationReport(
+        applicable = true,
+        characterCount = characterCount,
+        estimatedLineCount = estimatedLineCount,
+        estimatedReadingMillis = estimatedReadingMillis,
+        checks = checks
+    )
+}
 
 data class ConcertRecap(
     val eventTitle: String,

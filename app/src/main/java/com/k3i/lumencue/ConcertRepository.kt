@@ -90,7 +90,7 @@ fun choosePublishableRepositoryResult(
             source = ConcertRepositorySource.FallbackSample,
             packageReport = fallbackConcertPackageLoadReport(fallbackEvents),
             importValidationReport = importReport,
-            message = "주 데이터가 비어 있거나 import 검증을 통과하지 못해 예비 샘플 데이터를 사용합니다."
+            message = "${primary.message} 로컬 예비 데이터로 전환했습니다."
         )
     }
 }

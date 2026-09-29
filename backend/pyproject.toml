@@ -1,0 +1,18 @@
+[project]
+name = "lumencue-backend"
+version = "0.4.0"
+description = "Dependency-free local backend MVP for LumenCue"
+requires-python = ">=3.11"
+
+[project.scripts]
+lumencue-backend = "lumencue_backend.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["lumencue_backend"]
+
+[tool.setuptools.package-data]
+lumencue_backend = ["admin/*", "migrations/*.sql"]

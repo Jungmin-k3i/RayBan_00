@@ -146,6 +146,7 @@ class ConcertExperienceTest {
         assertTrue(translation.confidencePercent >= 90)
         assertEquals("PreparedSubtitleTranslationEngine", translation.engineName)
         assertEquals(null, translation.fallbackReason)
+        assertEquals(TranslationDisplayAction.ShowHud, translation.policyDecision.action)
     }
 
     @Test
@@ -169,6 +170,96 @@ class ConcertExperienceTest {
         assertEquals("PhoneMicExperimentalTranslationEngine", translation.engineName)
         assertTrue(translation.fallbackReason?.contains("실제 STT/번역 API") == true)
         assertTrue(translation.confidencePercent in 35..62)
+        assertEquals(TranslationDisplayAction.UsePreparedSubtitle, translation.policyDecision.action)
+        assertTrue(translation.policyDecision.reason.contains("2500ms"))
+    }
+
+    @Test
+    fun translationPolicyUsesCautiousHudForLowConfidenceResult() {
+        val result = TranslationResult(
+            source = TranslationInputSource.OfficialAudioFeed,
+            stage = TranslationPipelineStage.HudSummary,
+            translatedText = "확실하지 않은 번역",
+            hudSummary = "확실하지 않은 번역",
+            estimatedLatencyMillis = 1_000,
+            confidencePercent = 60,
+            policyNote = "test",
+            engineName = "test"
+        )
+
+        val decision = TranslationOperationalPolicy().evaluate(
+            result = result,
+            contentRisk = TranslationContentRisk.Standard,
+            preparedSubtitleAvailable = true
+        )
+
+        assertEquals(TranslationDisplayAction.ShowWithCaution, decision.action)
+        assertTrue(decision.reason.contains("오역 가능성"))
+    }
+
+    @Test
+    fun translationPolicyKeepsSensitiveExpressionOnPhone() {
+        val result = TranslationResult(
+            source = TranslationInputSource.PreparedSubtitleFeed,
+            stage = TranslationPipelineStage.HudSummary,
+            translatedText = "민감한 맥락",
+            hudSummary = "민감한 맥락",
+            estimatedLatencyMillis = 700,
+            confidencePercent = 98,
+            policyNote = "test",
+            engineName = "test"
+        )
+
+        val decision = TranslationOperationalPolicy().evaluate(
+            result = result,
+            contentRisk = TranslationContentRisk.Sensitive,
+            preparedSubtitleAvailable = true
+        )
+
+        assertEquals(TranslationDisplayAction.PhoneOnly, decision.action)
+    }
+
+    @Test
+    fun venueRecordingPolicyBlocksPhoneMicAndUsesPreparedSubtitle() {
+        val result = TranslationResult(
+            source = TranslationInputSource.PhoneMicExperimental,
+            stage = TranslationPipelineStage.HudSummary,
+            translatedText = "준비된 안내",
+            hudSummary = "준비된 안내",
+            estimatedLatencyMillis = 500,
+            confidencePercent = 99,
+            policyNote = "test",
+            engineName = "test"
+        )
+        val policy = TranslationOperationalPolicy(
+            audioCapturePolicy = VenueAudioCapturePolicy.Prohibited
+        )
+
+        val decision = policy.evaluate(
+            result = result,
+            contentRisk = TranslationContentRisk.Standard,
+            preparedSubtitleAvailable = true
+        )
+
+        assertEquals(TranslationDisplayAction.UsePreparedSubtitle, decision.action)
+        assertTrue(decision.reason.contains("공연장 녹음 정책"))
+    }
+
+    @Test
+    fun concertCanOverrideTranslationToneAndPreferredTerms() {
+        val baseEvent = sampleConcertEvents.first()
+        val originalText = baseEvent.tracks.first().cues.first().hudMessageKo
+        val event = baseEvent.copy(
+            translationPolicy = TranslationOperationalPolicy(
+                tone = TranslationTone.Formal,
+                preferredTerms = mapOf(originalText to "공연 전용 안내")
+            )
+        )
+
+        val translation = ConcertState(event = event).liveTranslation
+
+        assertEquals("공연 전용 안내", translation.hudSummary)
+        assertEquals(TranslationTone.Formal, translation.policyDecision.tone)
     }
 
     @Test
@@ -198,6 +289,95 @@ class ConcertExperienceTest {
     }
 
     @Test
+    fun lensCaptionValidationAcceptsReadableCaption() {
+        val state = ConcertState(elapsedSeconds = 72)
+        val report = state.hudState.toRenderInstruction().validateLensCaption(state.liveTranslation)
+
+        assertTrue(report.applicable)
+        assertTrue(report.canDispatch)
+        assertEquals(LensCaptionCheckSeverity.Passed, report.overallSeverity)
+        assertTrue(report.characterCount in 1..34)
+        assertTrue(report.estimatedLineCount <= 2)
+    }
+
+    @Test
+    fun lensCaptionValidationBlocksLongMultilineCaption() {
+        val instruction = ConcertState(elapsedSeconds = 72)
+            .hudState
+            .copy(primaryKo = "긴자막".repeat(20))
+            .toRenderInstruction()
+
+        val report = instruction.validateLensCaption()
+
+        assertEquals(LensCaptionCheckSeverity.Blocker, report.overallSeverity)
+        assertFalse(report.canDispatch)
+        assertTrue(report.checks.any {
+            it.type == LensCaptionCheckType.ContentLength &&
+                it.severity == LensCaptionCheckSeverity.Blocker
+        })
+        assertTrue(report.checks.any {
+            it.type == LensCaptionCheckType.LineCount &&
+                it.severity == LensCaptionCheckSeverity.Blocker
+        })
+    }
+
+    @Test
+    fun lensCaptionValidationWarnsWhenDisplayTimeIsTooShort() {
+        val instruction = ConcertState(elapsedSeconds = 72)
+            .hudState
+            .copy(durationMillis = 1_000)
+            .toRenderInstruction()
+
+        val report = instruction.validateLensCaption()
+
+        assertEquals(LensCaptionCheckSeverity.Warning, report.overallSeverity)
+        assertTrue(report.canDispatch)
+        assertTrue(report.checks.any {
+            it.type == LensCaptionCheckType.DisplayDuration &&
+                it.severity == LensCaptionCheckSeverity.Warning
+        })
+    }
+
+    @Test
+    fun lensCaptionValidationBlocksPeripheralCaptionPlacement() {
+        val instruction = ConcertState(elapsedSeconds = 72)
+            .hudState
+            .copy(placement = HudPlacement.PeripheralPulse)
+            .toRenderInstruction()
+
+        val report = instruction.validateLensCaption()
+
+        assertFalse(report.canDispatch)
+        assertTrue(report.checks.any {
+            it.type == LensCaptionCheckType.SafeArea &&
+                it.severity == LensCaptionCheckSeverity.Blocker
+        })
+    }
+
+    @Test
+    fun lensCaptionValidationBlocksPhoneOnlyTranslationPolicy() {
+        val baseEvent = sampleConcertEvents.first()
+        val cue = baseEvent.tracks.first().cues[2].copy(
+            translationContentRisk = TranslationContentRisk.Sensitive
+        )
+        val track = baseEvent.tracks.first().copy(
+            cues = baseEvent.tracks.first().cues.toMutableList().apply { set(2, cue) }
+        )
+        val event = baseEvent.copy(
+            tracks = baseEvent.tracks.toMutableList().apply { set(0, track) }
+        )
+        val state = ConcertState(event = event, elapsedSeconds = 72)
+
+        val report = state.hudState.toRenderInstruction().validateLensCaption(state.liveTranslation)
+
+        assertFalse(report.canDispatch)
+        assertTrue(report.checks.any {
+            it.type == LensCaptionCheckType.TranslationPolicy &&
+                it.severity == LensCaptionCheckSeverity.Blocker
+        })
+    }
+
+    @Test
     fun metaWearablesToolkitRendererStaysBlockedUntilOfficialSdkIsConnected() {
         val instruction = ConcertState().hudState.toRenderInstruction()
         val result = MetaWearablesToolkitHudRenderer().render(instruction)
@@ -213,22 +393,53 @@ class ConcertExperienceTest {
 
         assertEquals(TargetGlassesDevice.RayBanDisplay, profile.targetDevice)
         assertTrue(profile.targetDevice.hasDisplay)
-        assertEquals(GlassesRendererAvailability.Ready, profile.primaryRenderer.status.availability)
-        assertEquals(GlassesRendererAvailability.Ready, profile.mockDeviceRenderer?.status?.availability)
+        assertEquals(GlassesRendererAvailability.WaitingForOfficialSdk, profile.primaryRenderer.status.availability)
+        assertEquals(GlassesRendererAvailability.WaitingForOfficialSdk, profile.mockDeviceRenderer?.status?.availability)
         assertEquals(GlassesRendererAvailability.Ready, profile.fallbackRenderer.status.availability)
     }
 
     @Test
-    fun metaWearablesMockDeviceRendererAcceptsPayloadForEmulatorReview() {
+    fun metaWearablesMockDeviceRendererRejectsDisplayPayloadWhenSdkModelHasNoDisplay() {
         val instruction = ConcertState().hudState.toRenderInstruction()
-        val renderer = MetaWearablesMockDeviceHudRenderer()
+        val renderer = MetaWearablesMockDeviceHudRenderer(
+            MetaWearablesMockDeviceRuntimeState(
+                phase = MetaWearablesMockDevicePhase.DisplayUnsupported,
+                kitEnabled = true,
+                devicePaired = true,
+                sessionStarted = true,
+                displayCapable = false,
+                deviceName = "Meta Glasses",
+                message = "SDK 0.9.0 MockDevice에는 Display 모델이 없습니다."
+            )
+        )
         val result = renderer.render(instruction)
         val document = renderer.prepareDisplayDocument(instruction)
 
-        assertEquals(true, result.accepted)
-        assertEquals(GlassesRendererAvailability.Ready, result.status.availability)
-        assertTrue(result.status.message.contains("MockDeviceKit"))
+        assertEquals(false, result.accepted)
+        assertEquals(GlassesRendererAvailability.Unsupported, result.status.availability)
+        assertTrue(result.status.message.contains("Display"))
         assertEquals(instruction.visualScene.sceneId, document.documentId)
+    }
+
+    @Test
+    fun metaWearablesMockDeviceRendererAcceptsPayloadWhenDisplaySessionIsAvailable() {
+        val instruction = ConcertState().hudState.toRenderInstruction()
+        val renderer = MetaWearablesMockDeviceHudRenderer(
+            MetaWearablesMockDeviceRuntimeState(
+                phase = MetaWearablesMockDevicePhase.SessionStarted,
+                kitEnabled = true,
+                devicePaired = true,
+                sessionStarted = true,
+                displayCapable = true,
+                deviceName = "Display-capable mock",
+                message = "DAT MockDevice 디스플레이 세션 준비 완료"
+            )
+        )
+
+        val result = renderer.render(instruction)
+
+        assertTrue(result.accepted)
+        assertEquals(GlassesRendererAvailability.Ready, result.status.availability)
     }
 
     @Test
@@ -247,20 +458,20 @@ class ConcertExperienceTest {
     }
 
     @Test
-    fun hudDispatchFallsBackToSmartphonePreviewWhenToolkitIsPending() {
+    fun hudDispatchFallsBackToSmartphonePreviewWhenMockDeviceIsNotInitialized() {
         val instruction = ConcertState().hudState.toRenderInstruction()
         val report = dispatchHudToGlasses(
             instruction = instruction,
             profile = defaultGlassesIntegrationProfile()
         )
 
-        assertEquals(true, report.primaryResult.accepted)
-        assertEquals(null, report.fallbackResult)
-        assertEquals(GlassesDispatchRoute.MockDevice, report.route)
+        assertEquals(false, report.primaryResult.accepted)
+        assertEquals(true, report.fallbackResult?.accepted)
+        assertEquals(GlassesDispatchRoute.FallbackPreview, report.route)
         assertEquals(1, report.records.size)
-        assertEquals("MetaWearablesMockDeviceHudRenderer", report.records.first().rendererName)
+        assertEquals("SmartphonePreviewHudRenderer", report.records.first().rendererName)
         assertEquals(instruction.textKo, report.records.first().textKo)
-        assertEquals(false, report.fallbackPlan.active)
+        assertEquals(true, report.fallbackPlan.active)
     }
 
     @Test
@@ -286,14 +497,18 @@ class ConcertExperienceTest {
         val instruction = ConcertState().hudState.toRenderInstruction()
         val records = dispatchHudToGlasses(
             instruction = instruction,
-            profile = defaultGlassesIntegrationProfile()
+            profile = defaultGlassesIntegrationProfile(),
+            eventId = "event-audit-1"
         ).records
 
         val restored = deserializeGlassesDispatchRecords(serializeGlassesDispatchRecords(records))
 
         assertEquals(records, restored)
         assertEquals(instruction.textKo, restored.first().textKo)
-        assertEquals(GlassesDispatchRoute.MockDevice, restored.first().route)
+        assertEquals(GlassesDispatchRoute.FallbackPreview, restored.first().route)
+        assertEquals("event-audit-1", restored.first().eventId)
+        assertEquals(records.first().clientRecordId, restored.first().clientRecordId)
+        assertTrue(restored.first().clientRecordId.isNotBlank())
     }
 
     @Test
@@ -409,6 +624,16 @@ class ConcertExperienceTest {
                 "holderName": "Guest",
                 "checkedIn": true
               },
+              "translationPolicy": {
+                "maxHudLatencyMillis": 1800,
+                "minimumConfidencePercent": 82,
+                "tone": "Formal",
+                "audioCapturePolicy": "Prohibited",
+                "sensitiveContentOnPhoneOnly": true,
+                "preferredTerms": {
+                  "Artist": "ARTIST"
+                }
+              },
               "tracks": [
                 {
                   "title": "Track",
@@ -423,7 +648,8 @@ class ConcertExperienceTest {
                       "hudMessageEn": "Display",
                       "placement": "LowerEdge",
                       "effect": "Caption",
-                      "durationMillis": 3000
+                      "durationMillis": 3000,
+                      "translationContentRisk": "Ambiguous"
                     }
                   ]
                 }
@@ -472,6 +698,11 @@ class ConcertExperienceTest {
         assertEquals(1, event.interactionEvents.size)
         assertEquals(ConcertInteractionEventType.FanChant, event.interactionEvents.first().type)
         assertEquals(ReactionSignal.Cheer, event.interactionEvents.first().reactionSignal)
+        assertEquals(1_800, event.translationPolicy.maxHudLatencyMillis)
+        assertEquals(TranslationTone.Formal, event.translationPolicy.tone)
+        assertEquals(VenueAudioCapturePolicy.Prohibited, event.translationPolicy.audioCapturePolicy)
+        assertEquals("ARTIST", event.translationPolicy.preferredTerms["Artist"])
+        assertEquals(TranslationContentRisk.Ambiguous, event.tracks.first().cues.first().translationContentRisk)
     }
 
     @Test
@@ -694,14 +925,14 @@ class ConcertExperienceTest {
             architecture.capabilities.any {
                 it.type == BackendCapabilityType.ConcertPackageApi &&
                     it.requiredForMvp &&
-                    it.state == BackendRuntimeState.Planned
+                    it.state == BackendRuntimeState.LocalOnly
             }
         )
         assertTrue(
             architecture.capabilities.any {
                 it.type == BackendCapabilityType.TicketVerification &&
                     it.requiredForMvp &&
-                    it.state == BackendRuntimeState.Required
+                    it.state == BackendRuntimeState.LocalOnly
             }
         )
     }
@@ -715,7 +946,7 @@ class ConcertExperienceTest {
             architecture.databaseTables.any {
                 it.tableName == "tickets" &&
                     it.containsPersonalData &&
-                    it.retentionPolicy.contains("법무")
+                    it.retentionPolicy.contains("30일")
             }
         )
         assertTrue(
@@ -851,13 +1082,127 @@ class ConcertExperienceTest {
     }
 
     @Test
-    fun plannedRemoteRepositoryIsExplicitlyNotImplementedYet() {
-        val result = PlannedRemoteConcertRepository().loadConcertPackages()
+    fun remoteRepositoryLoadsPublishedPackageThroughStableApiContract() {
+        val transport = ConcertApiTransport { path ->
+            when (path) {
+                "/v1/concerts" ->
+                    """{"data":{"items":[{"id":"remote-show","packageVersion":3}]}}"""
+                "/v1/concerts/remote-show/package" ->
+                    """{"data":{"eventId":"remote-show","version":3,"package":${validRemoteConcertPackageJson()},"emergencyNotice":{"id":"notice-1","severity":"Critical","messageKo":"북문으로 대피하세요","messageEn":"Evacuate through the north gate","expiresAt":"2026-09-18T12:00:00Z"}}}"""
+                else -> error("Unexpected path: $path")
+            }
+        }
+
+        val result = RemoteApiConcertRepository(transport).loadConcertPackages()
 
         assertEquals(ConcertRepositorySource.RemoteApi, result.source)
-        assertEquals(0, result.events.size)
-        assertTrue(result.importValidationReport?.canPublish == false)
-        assertTrue(result.message.contains("아직 구현되지 않았습니다"))
+        assertEquals(listOf("remote-show"), result.events.map { it.id })
+        assertEquals(1, result.packageReport.loadedCount)
+        assertEquals(0, result.packageReport.failedCount)
+        assertTrue(result.importValidationReport?.canPublish == true)
+        assertTrue(result.message.contains("1개"))
+        assertEquals(EmergencyNoticeSeverity.Critical, result.events.first().emergencyNotice?.severity)
+        assertEquals("북문으로 대피하세요", ConcertState(event = result.events.first()).hudState.primaryKo)
+        assertEquals(HudPriority.High, ConcertState(event = result.events.first()).hudState.priority)
+    }
+
+    @Test
+    fun remoteRepositoryFailureFallsBackWithoutLosingFailureReason() {
+        val remote = RemoteApiConcertRepository(
+            ConcertApiTransport { throw IllegalStateException("backend offline") }
+        ).loadConcertPackages()
+
+        val result = choosePublishableRepositoryResult(remote, sampleConcertEvents)
+
+        assertEquals(ConcertRepositorySource.FallbackSample, result.source)
+        assertEquals(sampleConcertEvents.size, result.events.size)
+        assertTrue(result.message.contains("backend offline"))
+        assertTrue(result.message.contains("로컬 예비 데이터"))
+    }
+
+    @Test
+    fun remoteRepositoryRejectsEntireCatalogWhenAnyPublishedPackageIsInvalid() {
+        val transport = ConcertApiTransport { path ->
+            when (path) {
+                "/v1/concerts" ->
+                    """{"data":{"items":[{"id":"remote-show","packageVersion":3},{"id":"broken-show","packageVersion":1}]}}"""
+                "/v1/concerts/remote-show/package" ->
+                    """{"data":{"eventId":"remote-show","version":3,"package":${validRemoteConcertPackageJson()}}}"""
+                "/v1/concerts/broken-show/package" ->
+                    """{"data":{"eventId":"broken-show","version":1,"package":{"id":"broken-show"}}}"""
+                else -> error("Unexpected path: $path")
+            }
+        }
+
+        val remote = RemoteApiConcertRepository(transport).loadConcertPackages()
+        val result = choosePublishableRepositoryResult(remote, sampleConcertEvents)
+
+        assertEquals(1, remote.packageReport.loadedCount)
+        assertEquals(1, remote.packageReport.failedCount)
+        assertTrue(remote.importValidationReport?.canPublish == false)
+        assertEquals(ConcertRepositorySource.FallbackSample, result.source)
+    }
+
+    @Test
+    fun backendAuditClientVerifiesTicketAndSyncsOnlyMatchingEventRecords() {
+        val postedPaths = mutableListOf<String>()
+        val postedBodies = mutableListOf<String>()
+        val bearerTokens = mutableListOf<String?>()
+        val transport = object : ConcertApiTransport {
+            override fun get(path: String): String = error("GET not expected")
+
+            override fun post(path: String, body: String, bearerToken: String?): String {
+                postedPaths += path
+                postedBodies += body
+                bearerTokens += bearerToken
+                return when (path) {
+                    "/v1/tickets/verify" ->
+                        """{"data":{"authorized":true,"eventId":"event-a","sessionId":"session-1","accessToken":"token-1","expiresAt":"2026-09-18T12:00:00Z"}}"""
+                    "/v1/device-dispatch-logs" ->
+                        """{"data":{"id":"log-1","eventId":"event-a","occurredAt":"2026-09-18T01:00:00Z","deduplicated":false}}"""
+                    else -> error("Unexpected path: $path")
+                }
+            }
+
+            override fun delete(path: String, bearerToken: String): String {
+                postedPaths += path
+                bearerTokens += bearerToken
+                return """{"data":{"receiptId":"receipt-1","scope":"ticket","ticketsDeleted":1,"sessionsDeleted":1,"dispatchLogsDeleted":1,"completedAt":"2026-09-18T02:00:00Z"}}"""
+            }
+        }
+        val client = BackendAuditClient(transport)
+        val ticket = ConcertTicket(
+            ticketId = "ticket-a",
+            holderName = "Guest",
+            checkedIn = true,
+            provider = "ticket-provider"
+        )
+        val matching = GlassesDispatchRecord(
+            sequence = 3,
+            route = GlassesDispatchRoute.FallbackPreview,
+            accepted = true,
+            rendererName = "SmartphonePreviewHudRenderer",
+            availability = GlassesRendererAvailability.Ready,
+            documentId = "scene-3",
+            textKo = "안내",
+            priority = HudPriority.Normal,
+            eventId = "event-a"
+        )
+        val otherEvent = matching.copy(sequence = 4, eventId = "event-b")
+
+        val session = client.verifyTicket("event-a", ticket)
+        val report = client.syncDispatchRecords(session, listOf(matching, otherEvent))
+        val deletion = client.deleteAudienceData(session)
+
+        assertEquals("token-1", session.accessToken)
+        assertEquals(1, report.attemptedCount)
+        assertEquals(1, report.syncedCount)
+        assertEquals(listOf("/v1/tickets/verify", "/v1/device-dispatch-logs", "/v1/me/data"), postedPaths)
+        assertTrue(postedBodies.first().contains("ticket-provider"))
+        assertTrue(postedBodies.last().contains(matching.clientRecordId))
+        assertEquals("token-1", bearerTokens.last())
+        assertEquals("receipt-1", deletion.receiptId)
+        assertEquals(1, deletion.dispatchLogsDeleted)
     }
 
     @Test
@@ -909,3 +1254,54 @@ class ConcertExperienceTest {
         assertEquals(RepositoryReadinessSeverity.Ready, ready.severity)
     }
 }
+
+private fun validRemoteConcertPackageJson(): String =
+    """
+        {
+          "id": "remote-show",
+          "title": "Remote Show",
+          "partnerBrief": {
+            "promoter": "Promoter",
+            "venue": "Venue",
+            "showDate": "2026.09.18",
+            "dataStatus": "Confirmed"
+          },
+          "venueInfo": {
+            "name": "Venue",
+            "gate": "A1",
+            "seat": "B-12",
+            "nearestExit": "North",
+            "merchBooth": "1F"
+          },
+          "ticketPolicy": {
+            "requiresCheckIn": true,
+            "provider": "ticket"
+          },
+          "tracks": [
+            {
+              "title": "Track",
+              "artist": "Artist",
+              "durationSeconds": 90,
+              "cues": [
+                {
+                  "atSecond": 0,
+                  "titleKo": "시작",
+                  "titleEn": "Start",
+                  "hudMessageKo": "표시",
+                  "hudMessageEn": "Display",
+                  "placement": "LowerEdge",
+                  "effect": "Caption",
+                  "durationMillis": 3000
+                }
+              ]
+            }
+          ],
+          "partnerAssets": [
+            {
+              "name": "촬영 정책",
+              "detail": "지정 구간만 촬영 가능",
+              "status": "Confirmed"
+            }
+          ]
+        }
+    """.trimIndent()

@@ -37,6 +37,20 @@
         "provider": { "type": "string" }
       }
     },
+    "translationPolicy": {
+      "type": "object",
+      "properties": {
+        "maxHudLatencyMillis": { "type": "integer", "minimum": 1 },
+        "minimumConfidencePercent": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "tone": { "enum": ["Natural", "Formal"] },
+        "audioCapturePolicy": { "enum": ["Prohibited", "UserInitiatedOnly", "Allowed"] },
+        "sensitiveContentOnPhoneOnly": { "type": "boolean" },
+        "preferredTerms": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
     "tracks": {
       "type": "array",
       "items": {
@@ -59,7 +73,8 @@
                 "hudMessageEn": { "type": "string" },
                 "placement": { "enum": ["LowerEdge", "RightCorner", "PeripheralPulse"] },
                 "effect": { "enum": ["Caption", "Countdown", "EdgePulse", "EnergyMeter"] },
-                "durationMillis": { "type": "integer", "minimum": 1000, "maximum": 10000 }
+                "durationMillis": { "type": "integer", "minimum": 1000, "maximum": 10000 },
+                "translationContentRisk": { "enum": ["Standard", "Ambiguous", "Sensitive"] }
               }
             }
           }

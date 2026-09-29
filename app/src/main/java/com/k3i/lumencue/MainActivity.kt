@@ -3,6 +3,7 @@ package com.k3i.lumencue
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -46,6 +47,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,7 +73,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.k3i.lumencue.ui.theme.LumenCueTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -87,15 +94,39 @@ class MainActivity : ComponentActivity() {
 fun ConcertExperienceApp() {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    var mockMode by rememberSaveable { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+    val physicalGateway = remember(mockMode) { MetaWearablesDisplayGateway(context.applicationContext) }
+    val physicalState by physicalGateway.state.collectAsState()
+    val mockDeviceGateway = remember(context.applicationContext, mockMode) {
+        MetaWearablesDatMockDeviceGateway(context.applicationContext)
+    }
+    var mockDeviceRuntimeState by remember {
+        mutableStateOf(MetaWearablesMockDeviceRuntimeState.initializing())
+    }
     val savedSession = remember { loadConcertSession(context) }
-    val concertRepositoryResult = remember {
+    val localConcertRepositoryResult = remember {
         LocalAssetConcertRepository(context).loadConcertPackages()
     }
+    val apiBaseUrl = remember { BuildConfig.LUMENCUE_API_BASE_URL.trim() }
+    var concertRepositoryResult by remember { mutableStateOf(localConcertRepositoryResult) }
+    var backendAudienceSession by remember { mutableStateOf<BackendAudienceSession?>(null) }
+    var dispatchAuditSyncReport by remember { mutableStateOf<DispatchAuditSyncReport?>(null) }
     val concertPackageReport = concertRepositoryResult.packageReport
     val concertEvents = remember(concertPackageReport) {
         concertPackageReport.events
     }
-    val glassesProfile = remember { defaultGlassesIntegrationProfile() }
+    val glassesProfile = remember(mockDeviceRuntimeState, mockMode, physicalState.rendererStatus) {
+        if (mockMode) defaultGlassesIntegrationProfile(mockDeviceRuntimeState)
+        else GlassesIntegrationProfile(TargetGlassesDevice.RayBanDisplay, listOf(
+            SmartphonePreviewHudRenderer(), MetaWearablesToolkitHudRenderer(physicalState.rendererStatus)
+        ))
+    }
+    val activity = context as? android.app.Activity
+    val bluetoothPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted && !mockMode && activity != null) physicalGateway.register(activity)
+        else physicalGateway.showMessage("안경 연결에는 근처 기기 권한이 필요합니다. 다시 등록을 눌러 허용하세요.")
+    }
     var boardPostsByEventId by remember(concertEvents) { mutableStateOf(defaultConcertBoardPostsByEventId(concertEvents)) }
     var selectedBoardEventId by remember { mutableStateOf<String?>(null) }
     var selectedBoardPostId by remember { mutableStateOf<String?>(null) }
@@ -115,6 +146,71 @@ fun ConcertExperienceApp() {
         micRequested = granted
         micPermissionDenied = !granted
         if (!granted) concertState = concertState.stopAudioEnergy()
+    }
+
+    LaunchedEffect(localConcertRepositoryResult) {
+        if (apiBaseUrl.isNotEmpty()) {
+            val remoteResult = withContext(Dispatchers.IO) {
+                RemoteApiConcertRepository(
+                    HttpConcertApiTransport(apiBaseUrl)
+                ).loadConcertPackages()
+            }
+            concertRepositoryResult = choosePublishableRepositoryResult(
+                primary = remoteResult,
+                fallbackEvents = localConcertRepositoryResult.events
+            )
+        }
+    }
+
+    LaunchedEffect(concertEvents) {
+        concertState = concertState.withEventCatalog(concertEvents)
+    }
+
+    LaunchedEffect(
+        apiBaseUrl,
+        concertState.event.id,
+        concertState.event.ticket,
+        glassesDispatchRecords
+    ) {
+        if (apiBaseUrl.isEmpty() || !concertState.event.ticket.checkedIn) return@LaunchedEffect
+        val eventRecords = glassesDispatchRecords.filter {
+            it.eventId == concertState.event.id
+        }
+        if (eventRecords.isEmpty()) return@LaunchedEffect
+        val eventId = concertState.event.id
+        val ticket = concertState.event.ticket
+        val cachedSession = backendAudienceSession?.takeIf { it.eventId == eventId }
+
+        val result = withContext(Dispatchers.IO) {
+            runCatching {
+                val client = BackendAuditClient(HttpConcertApiTransport(apiBaseUrl))
+                val session = cachedSession ?: client.verifyTicket(eventId = eventId, ticket = ticket)
+                session to client.syncDispatchRecords(session, eventRecords)
+            }
+        }
+        result.onSuccess { (session, report) ->
+            backendAudienceSession = session
+            dispatchAuditSyncReport = report
+        }.onFailure { error ->
+            backendAudienceSession = null
+            dispatchAuditSyncReport = DispatchAuditSyncReport(
+                attemptedCount = eventRecords.size,
+                syncedCount = 0,
+                failedCount = eventRecords.size,
+                lastError = error.message ?: error::class.java.simpleName
+            )
+        }
+    }
+
+    LaunchedEffect(mockDeviceGateway, physicalGateway) {
+        if (mockMode) mockDeviceRuntimeState = mockDeviceGateway.connect()
+        else if (Build.VERSION.SDK_INT < 31 || ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+            physicalGateway.initialize()
+        }
+    }
+
+    DisposableEffect(mockDeviceGateway, physicalGateway) {
+        onDispose { mockDeviceGateway.close(); physicalGateway.close() }
     }
 
     DisposableEffect(lifecycleOwner) {
@@ -268,13 +364,20 @@ fun ConcertExperienceApp() {
                         onReaction = { reaction -> concertState = concertState.applyReaction(reaction) },
                         onInteractionEvent = { event -> concertState = concertState.applyInteractionEvent(event) },
                         onDispatchHud = { instruction ->
+                            val dispatchEventId = concertState.event.id
+                            val dispatchMockMode = mockMode
+                            coroutineScope.launch {
+                            val confirmed = if (dispatchMockMode) null else physicalGateway.send(instruction)
                             val updatedRecords = dispatchHudToGlasses(
                                 instruction = instruction,
                                 profile = glassesProfile,
-                                previousRecords = glassesDispatchRecords
+                                previousRecords = glassesDispatchRecords,
+                                eventId = dispatchEventId,
+                                confirmedPrimaryResult = confirmed
                             ).records
                             glassesDispatchRecords = updatedRecords
                             saveGlassesDispatchRecords(context, updatedRecords)
+                            }
                         },
                         onDismissResumeNotice = { companionResumeNoticeVisible = false },
                         onToggleMic = {
@@ -385,9 +488,36 @@ fun ConcertExperienceApp() {
                     )
 
                     AppScreen.SettingsTechnical -> TechnicalSettingsScreen(
+                        glassesConnection = {
+                            PhysicalGlassesCard(
+                                state = physicalState,
+                                mockMode = mockMode,
+                                onMockMode = { mockMode = it },
+                                onRegister = {
+                                    if (Build.VERSION.SDK_INT >= 31 && ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                                        bluetoothPermissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
+                                    } else if (activity != null) physicalGateway.register(activity)
+                                },
+                                onUnregister = { if (activity != null) physicalGateway.unregister(activity) },
+                                onConnect = physicalGateway::connect,
+                                onDisconnect = { physicalGateway.disconnect() },
+                                onTest = {
+                                    coroutineScope.launch {
+                                        physicalGateway.sendDocument(ToolkitDisplayDocument(
+                                            "connection-test", TargetGlassesDevice.RayBanDisplay, 30000, HudPriority.Normal,
+                                            listOf(ToolkitDisplayElement("test", ToolkitDisplayElementType.Text, "LumenCue display test"))
+                                        ))
+                                    }
+                                },
+                                onFirmwareUpdate = { if (activity != null) physicalGateway.updateFirmware(activity) },
+                                onDatUpdate = { if (activity != null) physicalGateway.updateDat(activity) }
+                            )
+                        },
                         state = concertState,
                         glassesProfile = glassesProfile,
                         repositoryResult = concertRepositoryResult,
+                        apiConfigured = apiBaseUrl.isNotEmpty(),
+                        dispatchAuditSyncReport = dispatchAuditSyncReport,
                         micPermissionDenied = micPermissionDenied,
                         appInForeground = appInForeground,
                         language = appLanguage,
@@ -915,7 +1045,7 @@ private fun CompanionScreen(
     onDismissResumeNotice: () -> Unit,
     onToggleMic: () -> Unit
 ) {
-    var liveMode by remember { mutableStateOf(CompanionViewMode.Live) }
+    var liveMode by rememberSaveable { mutableStateOf(CompanionViewMode.Live) }
     ScreenFrame {
         LiveCompanionTopBar(state = state)
         if (resumeNoticeVisible) {
@@ -934,9 +1064,11 @@ private fun CompanionScreen(
             }
 
             CompanionViewMode.Hud -> {
+                GlassesScreenPreview(hudState = state.hudState)
                 LiveTranslationHudCard(state = state)
                 GlassHudPreview(
                     hudState = state.hudState,
+                    translation = state.liveTranslation,
                     glassesProfile = glassesProfile,
                     dispatchRecords = glassesDispatchRecords,
                     showDispatchControls = true,
@@ -1009,8 +1141,58 @@ private fun TranslationDetailScreen(
             subtitle = "${targetLanguage.nativeLabel} 기준으로 렌즈 표시를 조정합니다.",
             badge = "상세"
         )
+        TranslationPolicyStatusCard(state = state, targetLanguage = targetLanguage)
         AudienceTranslationProblemsCard(state = state)
         TranslationFallbackTipsCard(state = state)
+    }
+}
+
+@Composable
+private fun TranslationPolicyStatusCard(
+    state: ConcertState,
+    targetLanguage: TranslationTargetLanguage
+) {
+    val translation = state.liveTranslationFor(targetLanguage)
+    val policy = state.event.translationPolicy
+    val decision = translation.policyDecision
+    val actionColor = when (decision.action) {
+        TranslationDisplayAction.ShowHud -> Color(0xFF62D6C4)
+        TranslationDisplayAction.ShowWithCaution -> Color(0xFFFFD166)
+        TranslationDisplayAction.UsePreparedSubtitle -> Color(0xFF8AB4F8)
+        TranslationDisplayAction.PhoneOnly,
+        TranslationDisplayAction.HideHud -> Color(0xFFE85D75)
+    }
+    Card(colors = darkCard(), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("현재 운영 판단", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text(decision.reason, color = Color(0xFFB8BDC7), fontSize = 11.sp)
+                }
+                StatusChip(decision.action.label, actionColor)
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MetricPill("지연 기준", "${policy.maxHudLatencyMillis}ms", Color(0xFF8AB4F8), Modifier.weight(1f))
+                MetricPill("최소 신뢰도", "${policy.minimumConfidencePercent}%", Color(0xFF62D6C4), Modifier.weight(1f))
+                MetricPill("말투", decision.tone.label, Color(0xFFFFD166), Modifier.weight(1f))
+            }
+            if (policy.preferredTerms.isNotEmpty()) {
+                Text(
+                    "공연 전용 용어 ${policy.preferredTerms.size}개 적용 중",
+                    color = Color(0xFF9CA3AF),
+                    fontSize = 11.sp
+                )
+            }
+            Text(
+                "공연장 오디오 정책: ${policy.audioCapturePolicy.label}",
+                color = Color(0xFF9CA3AF),
+                fontSize = 11.sp
+            )
+        }
     }
 }
 
@@ -1397,13 +1579,16 @@ private fun OperationsPrepSection(state: ConcertState) {
 @Composable
 private fun TechnicalPrepSection(
     glassesProfile: GlassesIntegrationProfile,
-    repositoryResult: ConcertRepositoryResult
+    repositoryResult: ConcertRepositoryResult,
+    apiConfigured: Boolean,
+    dispatchAuditSyncReport: DispatchAuditSyncReport?
 ) {
     GlassesIntegrationCard(glassesProfile)
     DatMockDeviceGuideCard(glassesProfile)
     PlatformIntegrationChannelsCard(defaultPlatformIntegrationChannels())
     BackendArchitectureCard(defaultBackendProductArchitecture())
     ConcertRepositoryStatusCard(repositoryResult)
+    DispatchAuditSyncCard(apiConfigured, dispatchAuditSyncReport)
     TimelineCard(repositoryResult.packageReport.events.firstOrNull()?.tracks ?: sampleConcertEvents.first().tracks)
     GlassesInteractionPolicyCard(defaultGlassesInteractionPolicy)
 }
@@ -1411,6 +1596,18 @@ private fun TechnicalPrepSection(
 @Composable
 private fun DatMockDeviceGuideCard(profile: GlassesIntegrationProfile) {
     val mockDeviceStatus = profile.mockDeviceRenderer?.status
+    val mockDeviceStatusLabel = when (mockDeviceStatus?.availability) {
+        GlassesRendererAvailability.Ready -> "READY"
+        GlassesRendererAvailability.Unsupported -> "LIMITED"
+        GlassesRendererAvailability.WaitingForOfficialSdk,
+        null -> "WAIT"
+    }
+    val mockDeviceStatusColor = when (mockDeviceStatus?.availability) {
+        GlassesRendererAvailability.Ready -> Color(0xFF62D6C4)
+        GlassesRendererAvailability.Unsupported -> Color(0xFFFFD166)
+        GlassesRendererAvailability.WaitingForOfficialSdk,
+        null -> Color(0xFF8AB4F8)
+    }
     Card(colors = darkCard(), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -1419,8 +1616,8 @@ private fun DatMockDeviceGuideCard(profile: GlassesIntegrationProfile) {
                     Text("Android Studio AVD가 아니라 앱 내부 SDK 테스트 디바이스 경로입니다.", color = Color(0xFFB8BDC7), fontSize = 12.sp)
                 }
                 StatusChip(
-                    label = if (mockDeviceStatus?.availability == GlassesRendererAvailability.Ready) "READY" else "WAIT",
-                    color = if (mockDeviceStatus?.availability == GlassesRendererAvailability.Ready) Color(0xFF62D6C4) else Color(0xFFFFD166)
+                    label = mockDeviceStatusLabel,
+                    color = mockDeviceStatusColor
                 )
             }
             Text(
@@ -1430,17 +1627,17 @@ private fun DatMockDeviceGuideCard(profile: GlassesIntegrationProfile) {
             )
             VisualStatusRow(
                 icon = "1",
-                title = "GitHub Packages",
-                detail = "mwdat-mockdevice artifact 다운로드가 가능해진 상태입니다. AR Live 전송 테스트는 MockDevice 렌더러를 우선 사용합니다.",
-                status = "연결됨",
+                title = "DAT SDK 0.9.0",
+                detail = "core, display, camera, mockdevice 의존성을 앱 빌드에 포함하고 MockDeviceKit 세션을 초기화합니다.",
+                status = "적용됨",
                 color = Color(0xFF62D6C4)
             )
             VisualStatusRow(
                 icon = "2",
-                title = "에뮬레이터 확인 방식",
-                detail = "하단 AR Live 탭에서 HUD 전송 테스트를 누르면 DAT MockDevice 경로로 payload accepted 상태를 확인합니다.",
-                status = "AR Live",
-                color = Color(0xFF8AB4F8)
+                title = "현재 검증 범위",
+                detail = "SDK 0.9.0 MockDevice는 Ray-Ban Display 모델을 제공하지 않아 연결·페어링·세션까지만 검증하고 HUD는 스마트폰 미리보기로 대체합니다.",
+                status = "제한됨",
+                color = Color(0xFFFFD166)
             )
         }
     }
@@ -1557,9 +1754,12 @@ private fun OperationsSettingsScreen(
 
 @Composable
 private fun TechnicalSettingsScreen(
+    glassesConnection: @Composable () -> Unit,
     state: ConcertState,
     glassesProfile: GlassesIntegrationProfile,
     repositoryResult: ConcertRepositoryResult,
+    apiConfigured: Boolean,
+    dispatchAuditSyncReport: DispatchAuditSyncReport?,
     micPermissionDenied: Boolean,
     appInForeground: Boolean,
     language: AppLanguage,
@@ -1572,6 +1772,7 @@ private fun TechnicalSettingsScreen(
             title = if (language == AppLanguage.Korean) "기술 설정" else "Technical",
             subtitle = if (language == AppLanguage.Korean) "글래스, 백엔드, 플랫폼 연동" else "Glasses, backend, platform integration"
         )
+        glassesConnection()
         TranslationPipelineCard(state = state, targetLanguage = translationTargetLanguage)
         TranslationProviderPlanCard(defaultTranslationProviderOptions)
         AudioPanel(
@@ -1582,7 +1783,9 @@ private fun TechnicalSettingsScreen(
         )
         TechnicalPrepSection(
             glassesProfile = glassesProfile,
-            repositoryResult = repositoryResult
+            repositoryResult = repositoryResult,
+            apiConfigured = apiConfigured,
+            dispatchAuditSyncReport = dispatchAuditSyncReport
         )
     }
 }
@@ -2318,6 +2521,8 @@ private fun SessionPolicyCard() {
             Text("앱을 다시 열면 마지막 선택 공연과 세션 요약을 복원합니다.", color = Color(0xFFB8BDC7), fontSize = 13.sp)
             Text("진행 중이던 Companion 화면은 안전을 위해 공연 준비 화면에서 재개합니다.", color = Color(0xFFFFD166), fontSize = 13.sp)
             Text("마이크 분석은 사용자가 다시 시작해야 합니다.", color = Color(0xFFB8BDC7), fontSize = 13.sp)
+            Text("게시글과 저장 순간은 현재 기기에만 머물며 서버로 전송하지 않습니다.", color = Color(0xFFB8BDC7), fontSize = 13.sp)
+            Text("티켓 세션과 HUD 감사 로그는 만료 후 30일 이내 자동 삭제 대상입니다.", color = Color(0xFF9AE6B4), fontSize = 13.sp)
         }
     }
 }
@@ -2619,6 +2824,56 @@ private fun ConcertRepositoryStatusCard(result: ConcertRepositoryResult) {
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DispatchAuditSyncCard(
+    apiConfigured: Boolean,
+    report: DispatchAuditSyncReport?
+) {
+    val status = when {
+        !apiConfigured -> "LOCAL"
+        report == null -> "WAIT"
+        report.failedCount == 0 -> "SYNCED"
+        report.syncedCount > 0 -> "PARTIAL"
+        else -> "FAILED"
+    }
+    val color = when (status) {
+        "SYNCED" -> Color(0xFF9AE6B4)
+        "PARTIAL", "WAIT" -> Color(0xFFFFD166)
+        "FAILED" -> Color(0xFFFF6B6B)
+        else -> Color(0xFF8AB4F8)
+    }
+    Card(colors = darkCard(), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("HUD 감사 로그 동기화", color = Color.White, fontWeight = FontWeight.Bold)
+                StatusChip(label = status, color = color)
+            }
+            when {
+                !apiConfigured -> Text(
+                    "API 주소가 없어 로컬 감사 로그만 유지합니다.",
+                    color = Color(0xFFB8BDC7),
+                    fontSize = 12.sp
+                )
+                report == null -> Text(
+                    "HUD 전송 후 티켓 세션을 확인하고 서버 동기화를 시작합니다.",
+                    color = Color(0xFFB8BDC7),
+                    fontSize = 12.sp
+                )
+                else -> {
+                    Text(
+                        "시도 ${report.attemptedCount}개 · 완료 ${report.syncedCount}개 · 실패 ${report.failedCount}개",
+                        color = Color(0xFFB8BDC7),
+                        fontSize = 12.sp
+                    )
+                    report.lastError?.let { error ->
+                        Text(error, color = Color(0xFFFF8A8A), fontSize = 11.sp, maxLines = 2)
+                    }
+                }
             }
         }
     }
@@ -3008,17 +3263,19 @@ private fun CompanionInteractionEventsCard(
 @Composable
 private fun GlassHudPreview(
     hudState: HudState,
+    translation: LiveTranslationState,
     glassesProfile: GlassesIntegrationProfile,
     dispatchRecords: List<GlassesDispatchRecord>,
     showDispatchControls: Boolean,
     onDispatchHud: (HudRenderInstruction) -> Unit
 ) {
     val renderInstruction = hudState.toRenderInstruction()
-    val toolkitResult = glassesProfile.primaryRenderer.render(renderInstruction)
-    val toolkitDocument = renderInstruction.toToolkitDisplayDocument(glassesProfile.targetDevice)
+    val primaryRendererResult = glassesProfile.primaryRenderer.render(renderInstruction)
+    val displayDocument = renderInstruction.toToolkitDisplayDocument(glassesProfile.targetDevice)
     val previewResult = glassesProfile.fallbackRenderer.render(renderInstruction)
-    val fallbackPlan = renderInstruction.toFallbackDeliveryPlan(toolkitResult)
+    val fallbackPlan = renderInstruction.toFallbackDeliveryPlan(primaryRendererResult)
     val visualScene = renderInstruction.visualScene
+    val lensValidation = renderInstruction.validateLensCaption(translation)
     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF202329)), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -3030,12 +3287,12 @@ private fun GlassHudPreview(
             }
             if (showDispatchControls) {
                 Text(
-                    "Toolkit: ${toolkitResult.status.message}",
+                    "DAT renderer: ${primaryRendererResult.status.message}",
                     color = Color(0xFFFFD166),
                     fontSize = 12.sp
                 )
                 Text(
-                    "Payload: ${toolkitDocument.elements.size} elements / ${toolkitDocument.durationMillis / 1000}s / ${toolkitDocument.priority.label}",
+                    "Payload: ${displayDocument.elements.size} elements / ${displayDocument.durationMillis / 1000}s / ${displayDocument.priority.label}",
                     color = Color(0xFFB8BDC7),
                     fontSize = 12.sp
                 )
@@ -3051,18 +3308,20 @@ private fun GlassHudPreview(
                 )
                 FallbackDeliveryPlanCard(fallbackPlan)
                 MockDeviceVerificationCard(
-                    result = toolkitResult,
-                    document = toolkitDocument,
+                    result = primaryRendererResult,
+                    document = displayDocument,
                     visualScene = visualScene
                 )
+                LensCaptionValidationCard(lensValidation)
             }
             if (showDispatchControls) {
                 OutlinedButton(
                     onClick = { onDispatchHud(renderInstruction) },
+                    enabled = lensValidation.canDispatch,
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("현재 HUD 전송 테스트")
+                    Text(if (lensValidation.canDispatch) "현재 HUD 전송 테스트" else "자막 차단 항목 확인 필요")
                 }
             }
             Box(
@@ -3081,7 +3340,11 @@ private fun GlassHudPreview(
                             )
                         )
                 )
-                LensSafeAreaOverlay(visualScene = visualScene, visible = showDispatchControls)
+                LensSafeAreaOverlay(
+                    visualScene = visualScene,
+                    validation = lensValidation,
+                    visible = showDispatchControls
+                )
                 HudEdgeEffect(hudState)
                 HudPrimitiveOverlay(
                     visualScene = visualScene,
@@ -3306,6 +3569,16 @@ private fun MockDeviceVerificationCard(
     document: ToolkitDisplayDocument,
     visualScene: HudVisualScene
 ) {
+    val resultLabel = when {
+        result.accepted -> "ACCEPTED"
+        result.status.availability == GlassesRendererAvailability.Unsupported -> "FALLBACK"
+        else -> "WAIT"
+    }
+    val resultColor = when {
+        result.accepted -> Color(0xFF62D6C4)
+        result.status.availability == GlassesRendererAvailability.Unsupported -> Color(0xFFFFD166)
+        else -> Color(0xFF8AB4F8)
+    }
     Card(colors = darkCard(), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -3314,8 +3587,8 @@ private fun MockDeviceVerificationCard(
                     Text("렌즈 뷰어가 아니라 DAT 연결/payload 흐름 검증입니다.", color = Color(0xFF9CA3AF), fontSize = 11.sp)
                 }
                 StatusChip(
-                    label = if (result.accepted) "ACCEPTED" else "WAIT",
-                    color = if (result.accepted) Color(0xFF62D6C4) else Color(0xFFFFD166)
+                    label = resultLabel,
+                    color = resultColor
                 )
             }
             Text(
@@ -3324,6 +3597,11 @@ private fun MockDeviceVerificationCard(
                 fontSize = 12.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                result.status.message,
+                color = resultColor,
+                fontSize = 11.sp
             )
             Text(
                 "시각 위치 확인은 아래 Lens Simulator의 safe area overlay를 기준으로 봅니다.",
@@ -3335,8 +3613,70 @@ private fun MockDeviceVerificationCard(
 }
 
 @Composable
+private fun LensCaptionValidationCard(report: LensCaptionValidationReport) {
+    val statusColor = report.overallSeverity.lensValidationColor()
+    Card(colors = darkCard(), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Lens Simulator 자막 검수", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    Text(
+                        if (report.applicable) "길이·위치·읽기 시간을 전송 전에 확인합니다."
+                        else "자막 큐를 선택하면 자동 검수가 시작됩니다.",
+                        color = Color(0xFF9CA3AF),
+                        fontSize = 11.sp
+                    )
+                }
+                StatusChip(
+                    label = if (report.applicable) report.overallSeverity.label else "대기",
+                    color = if (report.applicable) statusColor else Color(0xFF6B7280)
+                )
+            }
+            if (report.applicable) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MetricPill("자막", "${report.characterCount}자", Color(0xFF62D6C4), Modifier.weight(1f))
+                    MetricPill("예상", "${report.estimatedLineCount}줄", Color(0xFF8AB4F8), Modifier.weight(1f))
+                    MetricPill("읽기", "${report.estimatedReadingMillis / 1000f}s", Color(0xFFFFD166), Modifier.weight(1f))
+                }
+                report.checks.forEach { check ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Text(
+                            check.severity.label,
+                            color = check.severity.lensValidationColor(),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.width(34.dp)
+                        )
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Text(check.type.label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            Text(check.message, color = Color(0xFFB8BDC7), fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun LensCaptionCheckSeverity.lensValidationColor(): Color =
+    when (this) {
+        LensCaptionCheckSeverity.Passed -> Color(0xFF62D6C4)
+        LensCaptionCheckSeverity.Warning -> Color(0xFFFFD166)
+        LensCaptionCheckSeverity.Blocker -> Color(0xFFE85D75)
+    }
+
+@Composable
 private fun LensSafeAreaOverlay(
     visualScene: HudVisualScene,
+    validation: LensCaptionValidationReport,
     visible: Boolean
 ) {
     if (!visible) return
@@ -3368,6 +3708,19 @@ private fun LensSafeAreaOverlay(
                 color = Color(0xFFE85D75).copy(alpha = 0.24f),
                 topLeft = Offset(edgePadding * 0.5f, edgePadding * 0.5f),
                 size = Size(size.width - edgePadding, size.height - edgePadding),
+                style = Stroke(width = 5f),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(18f, 18f)
+            )
+        }
+        val safeAreaBlocked = validation.checks.any {
+            it.type == LensCaptionCheckType.SafeArea &&
+                it.severity == LensCaptionCheckSeverity.Blocker
+        }
+        if (safeAreaBlocked) {
+            drawRoundRect(
+                color = Color(0xFFE85D75).copy(alpha = 0.9f),
+                topLeft = Offset(edgePadding, edgePadding),
+                size = Size(size.width - edgePadding * 2, size.height - edgePadding * 2),
                 style = Stroke(width = 5f),
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(18f, 18f)
             )

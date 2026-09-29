@@ -34,7 +34,9 @@ fun serializeGlassesDispatchRecords(records: List<GlassesDispatchRecord>): Strin
             record.availability.name,
             encodeDispatchField(record.documentId),
             encodeDispatchField(record.textKo),
-            record.priority.name
+            record.priority.name,
+            encodeDispatchField(record.eventId.orEmpty()),
+            encodeDispatchField(record.clientRecordId)
         ).joinToString(FIELD_SEPARATOR)
     }
 
@@ -42,7 +44,7 @@ fun deserializeGlassesDispatchRecords(raw: String): List<GlassesDispatchRecord> 
     raw.lineSequence()
         .mapNotNull { line ->
             val fields = line.split(FIELD_SEPARATOR)
-            if (fields.size != 8) {
+            if (fields.size !in 8..10) {
                 null
             } else {
                 runCatching {
@@ -54,7 +56,17 @@ fun deserializeGlassesDispatchRecords(raw: String): List<GlassesDispatchRecord> 
                         availability = GlassesRendererAvailability.valueOf(fields[4]),
                         documentId = decodeDispatchField(fields[5]),
                         textKo = decodeDispatchField(fields[6]),
-                        priority = HudPriority.valueOf(fields[7])
+                        priority = HudPriority.valueOf(fields[7]),
+                        eventId = fields.getOrNull(8)
+                            ?.let(::decodeDispatchField)
+                            ?.takeIf { it.isNotBlank() },
+                        clientRecordId = fields.getOrNull(9)
+                            ?.let(::decodeDispatchField)
+                            ?.takeIf { it.isNotBlank() }
+                            ?: legacyDispatchRecordId(
+                                sequence = fields[0],
+                                documentId = decodeDispatchField(fields[5])
+                            )
                     )
                 }.getOrNull()
             }
@@ -66,3 +78,6 @@ private fun encodeDispatchField(value: String): String =
 
 private fun decodeDispatchField(value: String): String =
     URLDecoder.decode(value, StandardCharsets.UTF_8.name())
+
+private fun legacyDispatchRecordId(sequence: String, documentId: String): String =
+    "legacy-$sequence-${documentId.hashCode().toUInt().toString(16)}"

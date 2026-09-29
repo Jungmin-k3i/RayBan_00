@@ -1,21 +1,13 @@
-import java.util.Properties
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
 
-val localProperties =
-    Properties().apply {
-        val localPropertiesFile = rootProject.file("local.properties")
-        if (localPropertiesFile.exists()) {
-            localPropertiesFile.inputStream().use { load(it) }
-        }
-    }
-
-val hasMetaWearablesDatToken =
-    !System.getenv("GITHUB_TOKEN").isNullOrBlank() ||
-        !localProperties.getProperty("github_token").isNullOrBlank()
+val lumenCueApiBaseUrl = providers.gradleProperty("LUMENCUE_API_BASE_URL")
+    .orNull
+    .orEmpty()
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
 
 android {
     namespace = "com.k3i.lumencue"
@@ -32,11 +24,19 @@ android {
         versionCode = 1
         versionName = "1.0"
 
+        // Developer Mode in Meta AI accepts 0; production credentials stay outside source control.
+        manifestPlaceholders["mwdat_application_id"] = providers.gradleProperty("MWDAT_APPLICATION_ID").orElse("0").get()
+        manifestPlaceholders["mwdat_client_token"] = providers.gradleProperty("MWDAT_CLIENT_TOKEN").orElse("0").get()
+        buildConfigField("String", "LUMENCUE_API_BASE_URL", "\"$lumenCueApiBaseUrl\"")
+
         testApplicationId = "com.k3i.lumencue.test"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".dev"
+        }
         release {
             optimization {
                 enable = false
@@ -49,6 +49,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         jniLibs {
@@ -76,9 +77,8 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
-    if (hasMetaWearablesDatToken) {
-        implementation(libs.mwdat.core)
-        implementation(libs.mwdat.camera)
-        implementation(libs.mwdat.mockdevice)
-    }
+    implementation(libs.mwdat.core)
+    implementation(libs.mwdat.camera)
+    implementation(libs.mwdat.display)
+    implementation(libs.mwdat.mockdevice)
 }

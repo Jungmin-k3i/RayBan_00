@@ -1,5 +1,5 @@
 [versions]
-agp = "9.2.1"
+agp = "9.1.0"
 coreKtx = "1.10.1"
 junit = "4.13.2"
 junitVersion = "1.1.5"
@@ -9,7 +9,7 @@ lifecycleRuntimeKtx = "2.6.1"
 activityCompose = "1.8.0"
 kotlin = "2.2.10"
 composeBom = "2026.02.01"
-mwdat = "0.7.0"
+mwdat = "1.0.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -30,6 +30,7 @@ androidx-compose-material3 = { group = "androidx.compose.material3", name = "mat
 json = { group = "org.json", name = "json", version.ref = "json" }
 mwdat-core = { group = "com.meta.wearable", name = "mwdat-core", version.ref = "mwdat" }
 mwdat-camera = { group = "com.meta.wearable", name = "mwdat-camera", version.ref = "mwdat" }
+mwdat-display = { group = "com.meta.wearable", name = "mwdat-display", version.ref = "mwdat" }
 mwdat-mockdevice = { group = "com.meta.wearable", name = "mwdat-mockdevice", version.ref = "mwdat" }
 
 [plugins]

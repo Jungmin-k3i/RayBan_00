@@ -16,3 +16,6 @@ local.properties
 .kotlin/
 tmp/
 .idea/
+backend/var/
+backend/**/__pycache__/
+backend/**/*.pyc

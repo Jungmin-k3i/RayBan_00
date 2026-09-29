@@ -1,7 +1,7 @@
 package com.k3i.lumencue
 
 enum class BackendRuntimeState(val label: String) {
-    LocalOnly("로컬 앱"),
+    LocalOnly("로컬 MVP"),
     Planned("제품화 필요"),
     Required("필수 연동"),
     Deferred("후순위")
@@ -74,7 +74,7 @@ data class BackendProductArchitecture(
 
 fun defaultBackendProductArchitecture(): BackendProductArchitecture =
     BackendProductArchitecture(
-        currentAppMode = "현재는 Android 네이티브 앱이 로컬 JSON asset과 SharedPreferences로 동작합니다.",
+        currentAppMode = "Android 앱은 기본적으로 로컬 JSON/SharedPreferences로 동작하며, 설정 시 로컬 백엔드의 배포 패키지를 안전한 fallback과 함께 읽습니다.",
         targetProductMode = "실제 제품은 주최사 원본 데이터와 일치하는 API 서버, 원격 DB, 티켓/입장 연동, 운영 감사 로그가 필요합니다.",
         partnerDataSources = listOf(
             PartnerDataSourceContract(
@@ -90,10 +90,10 @@ fun defaultBackendProductArchitecture(): BackendProductArchitecture =
                 type = PartnerDataSourceType.TicketingSystem,
                 sourceName = "예매처/입장 인증 시스템",
                 sourceOfTruth = "티켓 ID, 예매자 권한, 입장 확인 상태",
-                syncMode = "실시간 API 조회 또는 일회성 입장 토큰 검증",
+                syncMode = "HMAC 서명 체크인 webhook, 관리자 수동 import 폴백",
                 requiredBeforeLaunch = true,
                 mismatchRisk = "앱의 티켓 상태가 실제 입장 권한과 다르면 무단 접근 또는 정상 사용자 차단이 발생합니다.",
-                reconciliationRule = "앱 DB는 티켓 원본을 소유하지 않고 provider ticket id와 검증 결과만 최소 저장합니다."
+                reconciliationRule = "앱 DB는 티켓 원본을 소유하지 않고 provider event id로 재시도를 중복 제거하며 ticket id와 검증 결과만 30일간 최소 저장합니다."
             ),
             PartnerDataSourceContract(
                 type = PartnerDataSourceType.VenueOperations,
@@ -127,25 +127,25 @@ fun defaultBackendProductArchitecture(): BackendProductArchitecture =
             BackendCapabilityStatus(
                 type = BackendCapabilityType.ConcertPackageApi,
                 title = "공연 패키지 API",
-                state = BackendRuntimeState.Planned,
+                state = BackendRuntimeState.LocalOnly,
                 requiredForMvp = true,
-                currentImplementation = "앱 asset의 concert_packages JSON을 로드합니다.",
+                currentImplementation = "SQLite 기반 draft/검수/승인/기준 버전 충돌 검사/배포 API와 Android 원격 조회/fallback 경로를 구현했습니다.",
                 productRequirement = "주최사가 검수 완료한 공연 패키지를 API로 배포하고 버전/상태를 관리해야 합니다."
             ),
             BackendCapabilityStatus(
                 type = BackendCapabilityType.PartnerAdminPortal,
                 title = "주최사 백오피스",
-                state = BackendRuntimeState.Planned,
+                state = BackendRuntimeState.LocalOnly,
                 requiredForMvp = true,
-                currentImplementation = "앱 내부 운영 탭에서 패키지 내용을 확인합니다.",
+                currentImplementation = "로컬 백엔드 /admin에서 패키지 등록·승인·배포, 긴급 공지, 티켓 체크인, HUD 감사 로그를 관리합니다.",
                 productRequirement = "기획사/공연장 운영자가 셋리스트, 큐, 촬영 정책, 동선을 업로드하고 검수해야 합니다."
             ),
             BackendCapabilityStatus(
                 type = BackendCapabilityType.TicketVerification,
                 title = "티켓/입장 인증",
-                state = BackendRuntimeState.Required,
+                state = BackendRuntimeState.LocalOnly,
                 requiredForMvp = true,
-                currentImplementation = "샘플 티켓 상태를 앱 데이터로 보유합니다.",
+                currentImplementation = "서명된 provider webhook, 수동 import 폴백, 체크인 검증, 12시간 audience token 발급을 구현했습니다.",
                 productRequirement = "예매처 또는 입장 시스템과 연동해 실제 관객의 공연 접근 권한을 확인해야 합니다."
             ),
             BackendCapabilityStatus(
@@ -167,9 +167,9 @@ fun defaultBackendProductArchitecture(): BackendProductArchitecture =
             BackendCapabilityStatus(
                 type = BackendCapabilityType.DeviceIntegrationAudit,
                 title = "글래스 연동 감사 로그",
-                state = BackendRuntimeState.Planned,
+                state = BackendRuntimeState.LocalOnly,
                 requiredForMvp = true,
-                currentImplementation = "최근 HUD 전송 기록을 앱 메모리에 보관합니다.",
+                currentImplementation = "앱 로컬 기록을 티켓 audience token으로 서버 감사 로그 API에 자동 동기화하며 재시도 중복을 제거합니다.",
                 productRequirement = "DAT/글래스 출력 성공, fallback, 오류를 운영자가 추적할 수 있게 서버 로그가 필요합니다."
             ),
             BackendCapabilityStatus(
@@ -177,7 +177,7 @@ fun defaultBackendProductArchitecture(): BackendProductArchitecture =
                 title = "긴급 공지/푸시",
                 state = BackendRuntimeState.Deferred,
                 requiredForMvp = false,
-                currentImplementation = "fallback plan 모델만 있습니다.",
+                currentImplementation = "우선순위 기반 긴급 공지 API와 Android HUD override를 구현했습니다. 실시간 push 전달은 후속 작업입니다.",
                 productRequirement = "입장 지연, 안전 공지, 글래스 출력 제한 시 Android 푸시/TTS 대체 경로가 필요합니다."
             )
         ),
@@ -201,21 +201,35 @@ fun defaultBackendProductArchitecture(): BackendProductArchitecture =
                 owner = "티켓/입장 연동",
                 purpose = "사용자 공연 접근 권한과 입장 확인 상태",
                 containsPersonalData = true,
-                retentionPolicy = "최소 보관 원칙, 예매처 정책과 법무 검토 필요"
+                retentionPolicy = "마지막 상태 갱신 후 30일, 관객 삭제 요청 시 즉시 삭제"
             ),
             DatabaseTableSpec(
                 tableName = "audience_sessions",
                 owner = "앱 서비스",
                 purpose = "선택 공연, 진행 상태, 리캡 생성에 필요한 최소 세션",
                 containsPersonalData = true,
-                retentionPolicy = "사용자 삭제 요청과 자동 만료 정책 필요"
+                retentionPolicy = "사용 가능 12시간, 만료 후 30일, 관객 삭제 요청 시 즉시 삭제"
             ),
             DatabaseTableSpec(
                 tableName = "device_dispatch_logs",
                 owner = "글래스 연동 운영",
                 purpose = "DAT 출력, fallback, renderer 오류, payload id 추적",
                 containsPersonalData = false,
-                retentionPolicy = "장애 분석 기간만 제한 보관"
+                retentionPolicy = "연결된 관객 세션 만료 후 30일"
+            ),
+            DatabaseTableSpec(
+                tableName = "ticket_provider_events",
+                owner = "티켓/입장 연동",
+                purpose = "서명 webhook 재시도 중복 제거와 처리 감사",
+                containsPersonalData = false,
+                retentionPolicy = "수신 후 30일"
+            ),
+            DatabaseTableSpec(
+                tableName = "data_deletion_receipts",
+                owner = "개인정보 운영",
+                purpose = "개인 식별자 없는 삭제 처리 증빙",
+                containsPersonalData = false,
+                retentionPolicy = "완료 후 365일"
             )
         )
     )

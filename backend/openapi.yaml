@@ -1,0 +1,678 @@
+openapi: 3.1.0
+info:
+  title: LumenCue Backend API
+  version: 0.4.0
+  description: 운영자 웹, 서명 티켓 webhook, 데이터 수명 관리, 공연 패키지 배포, HUD dispatch 감사를 위한 로컬 MVP API
+servers:
+  - url: http://127.0.0.1:8080
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      responses:
+        "200":
+          description: 서버와 DB 정상
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /v1/data-policy:
+    get:
+      operationId: getDataPolicy
+      responses:
+        "200":
+          description: 현재 사용자 데이터 보존·삭제 정책
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: "#/components/schemas/DataPolicy"
+  /v1/partners/tickets/events:
+    post:
+      operationId: receiveTicketProviderEvent
+      description: timestamp와 raw body를 HMAC-SHA256으로 서명한 서버 간 체크인 이벤트
+      security:
+        - providerSignature: []
+      parameters:
+        - name: X-LumenCue-Provider
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-LumenCue-Event-Id
+          in: header
+          required: true
+          schema: { type: string, maxLength: 200 }
+        - name: X-LumenCue-Timestamp
+          in: header
+          required: true
+          schema: { type: string, pattern: "^[0-9]+$" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TicketProviderEventInput"
+      responses:
+        "201":
+          description: 이벤트 처리 완료
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: "#/components/schemas/TicketProviderEventResult"
+        "200":
+          description: 동일 이벤트 재시도를 중복 제거함
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: "#/components/schemas/TicketProviderEventResult"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/admin/overview:
+    get:
+      operationId: getAdminOverview
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: 운영 콘솔용 공연, 배포 버전, 긴급 공지 요약
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AdminOverview"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/admin/retention/purge:
+    post:
+      operationId: purgeExpiredData
+      security:
+        - adminKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode: { enum: [preview, execute], default: preview }
+      responses:
+        "200":
+          description: 보존 기간 만료 데이터의 preview 또는 삭제 결과
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: "#/components/schemas/RetentionReport"
+  /v1/concerts:
+    get:
+      operationId: listPublishedConcerts
+      responses:
+        "200":
+          description: 배포된 공연 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ConcertSummary"
+  /v1/concerts/{eventId}/package:
+    parameters:
+      - $ref: "#/components/parameters/EventId"
+    get:
+      operationId: getPublishedConcertPackage
+      responses:
+        "200":
+          description: 최신 배포 패키지
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: "#/components/schemas/PublishedPackage"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/tickets/verify:
+    post:
+      operationId: verifyTicket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TicketReference"
+      responses:
+        "200":
+          description: 입장 확인 완료 및 audience session 발급
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: "#/components/schemas/TicketVerification"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/me/data:
+    delete:
+      operationId: deleteMyAudienceData
+      security:
+        - audienceToken: []
+      responses:
+        "200":
+          description: 현재 ticket 또는 subject 범위 데이터 삭제 완료
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: "#/components/schemas/DataDeletionReceipt"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/device-dispatch-logs:
+    post:
+      operationId: createDeviceDispatchLog
+      security:
+        - audienceToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DispatchLogInput"
+      responses:
+        "201":
+          description: 감사 로그 저장 완료
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [id, eventId, occurredAt, deduplicated]
+                    properties:
+                      id: { type: string, format: uuid }
+                      eventId: { type: string }
+                      occurredAt: { type: string, format: date-time }
+                      deduplicated: { type: boolean }
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/admin/concert-packages:
+    post:
+      operationId: createConcertPackageDraft
+      security:
+        - adminKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version, package]
+              properties:
+                version: { type: integer, minimum: 1 }
+                releaseChannel: { enum: [rehearsal, production, hotfix], default: rehearsal }
+                baseVersion: { type: integer, minimum: 1 }
+                changeSummary: { type: string }
+                package:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "201":
+          description: 검증된 draft 등록
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: "#/components/schemas/PackageVersion"
+        "401":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /v1/admin/concert-packages/{eventId}/versions/{version}/approve:
+    parameters:
+      - $ref: "#/components/parameters/EventId"
+      - name: version
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    post:
+      operationId: approveConcertPackage
+      security:
+        - adminKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approvedBy]
+              properties:
+                approvedBy: { type: string, minLength: 1 }
+      responses:
+        "200":
+          description: 검증된 버전 승인
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: "#/components/schemas/PackageVersion"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/admin/concert-packages/{eventId}/versions/{version}/publish:
+    parameters:
+      - $ref: "#/components/parameters/EventId"
+      - name: version
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    post:
+      operationId: publishConcertPackage
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: 해당 버전을 최신 패키지로 배포
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: "#/components/schemas/PackageVersion"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/admin/concerts/{eventId}/emergency-notices:
+    parameters:
+      - $ref: "#/components/parameters/EventId"
+    post:
+      operationId: createEmergencyNotice
+      security:
+        - adminKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [severity, messageKo, messageEn, createdBy, expiresAt]
+              properties:
+                severity: { enum: [Warning, Critical] }
+                messageKo: { type: string, minLength: 1, maxLength: 80 }
+                messageEn: { type: string, minLength: 1, maxLength: 80 }
+                createdBy: { type: string, minLength: 1 }
+                expiresAt: { type: string, format: date-time }
+      responses:
+        "201":
+          description: 우선순위 충돌 검사를 통과한 긴급 공지 생성
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: "#/components/schemas/EmergencyNotice"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/admin/tickets:
+    post:
+      operationId: importTicketStatus
+      security:
+        - adminKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/TicketReference"
+                - type: object
+                  required: [checkedIn]
+                  properties:
+                    checkedIn: { type: boolean }
+                    externalSubject:
+                      type: string
+                      description: 원문은 저장하지 않고 SHA-256 값만 보관
+      responses:
+        "200":
+          description: 티켓 상태 import 완료
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    allOf:
+                      - $ref: "#/components/schemas/TicketReference"
+                      - type: object
+                        required: [checkedIn]
+                        properties:
+                          checkedIn: { type: boolean }
+  /v1/admin/device-dispatch-logs:
+    get:
+      operationId: listDeviceDispatchLogs
+      security:
+        - adminKey: []
+      parameters:
+        - name: eventId
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 100 }
+      responses:
+        "200":
+          description: 최신 감사 로그
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/DispatchLog"
+components:
+  securitySchemes:
+    adminKey:
+      type: apiKey
+      in: header
+      name: X-Admin-Key
+    audienceToken:
+      type: http
+      scheme: bearer
+    providerSignature:
+      type: apiKey
+      in: header
+      name: X-LumenCue-Signature
+  parameters:
+    EventId:
+      name: eventId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1 }
+  responses:
+    Error:
+      description: API 오류
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+  schemas:
+    HealthResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [status, database, schemaMigrations, publishedConcerts]
+          properties:
+            status: { const: ok }
+            database: { const: ready }
+            schemaMigrations: { type: integer }
+            publishedConcerts: { type: integer }
+    ConcertSummary:
+      type: object
+      required: [id, title, promoter, venue, showDate, packageVersion, checksumSha256, publishedAt]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        promoter: { type: string }
+        venue: { type: string }
+        showDate: { type: string }
+        packageVersion: { type: integer }
+        checksumSha256: { type: string, pattern: "^[0-9a-f]{64}$" }
+        publishedAt: { type: string, format: date-time }
+    PackageVersion:
+      type: object
+      required: [eventId, version, status]
+      properties:
+        eventId: { type: string }
+        version: { type: integer }
+        status: { enum: [draft, approved, published, superseded] }
+        releaseChannel: { enum: [rehearsal, production, hotfix] }
+        baseVersion: { type: [integer, "null"] }
+        changeSummary: { type: string }
+        checksumSha256: { type: string }
+        approvedBy: { type: string }
+        approvedAt: { type: string, format: date-time }
+        publishedAt: { type: string, format: date-time }
+    AdminOverview:
+      type: object
+      required: [generatedAt, metrics, events]
+      properties:
+        generatedAt: { type: string, format: date-time }
+        metrics:
+          type: object
+          required: [eventCount, publishedEvents, packageCount, awaitingApproval, activeNotices, dispatchCount]
+          properties:
+            eventCount: { type: integer }
+            publishedEvents: { type: integer }
+            packageCount: { type: integer }
+            awaitingApproval: { type: integer }
+            activeNotices: { type: integer }
+            dispatchCount: { type: integer }
+        events:
+          type: array
+          items:
+            type: object
+            required: [id, title, promoter, venue, showDate, status, checkedInTickets, dispatchCount, versions]
+            properties:
+              id: { type: string }
+              title: { type: string }
+              promoter: { type: string }
+              venue: { type: string }
+              showDate: { type: string }
+              status: { enum: [draft, published, archived] }
+              checkedInTickets: { type: integer }
+              dispatchCount: { type: integer }
+              activeNotice:
+                oneOf:
+                  - $ref: "#/components/schemas/EmergencyNotice"
+                  - type: "null"
+              versions:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PackageVersion"
+    PublishedPackage:
+      type: object
+      required: [eventId, version, checksumSha256, publishedAt, package]
+      properties:
+        eventId: { type: string }
+        version: { type: integer }
+        checksumSha256: { type: string }
+        publishedAt: { type: string, format: date-time }
+        package:
+          type: object
+          additionalProperties: true
+        emergencyNotice:
+          oneOf:
+            - $ref: "#/components/schemas/EmergencyNotice"
+            - type: "null"
+    EmergencyNotice:
+      type: object
+      required: [id, eventId, severity, messageKo, messageEn, createdBy, createdAt, expiresAt]
+      properties:
+        id: { type: string, format: uuid }
+        eventId: { type: string }
+        severity: { enum: [Warning, Critical] }
+        messageKo: { type: string, maxLength: 80 }
+        messageEn: { type: string, maxLength: 80 }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+    TicketReference:
+      type: object
+      required: [provider, ticketId, eventId]
+      properties:
+        provider: { type: string, minLength: 1 }
+        ticketId: { type: string, minLength: 1 }
+        eventId: { type: string, minLength: 1 }
+    TicketVerification:
+      type: object
+      required: [authorized, eventId, sessionId, accessToken, expiresAt]
+      properties:
+        authorized: { const: true }
+        eventId: { type: string }
+        sessionId: { type: string, format: uuid }
+        accessToken: { type: string }
+        expiresAt: { type: string, format: date-time }
+    TicketProviderEventInput:
+      type: object
+      required: [type, eventId, ticketId, occurredAt]
+      properties:
+        type: { enum: [ticket.checked_in, ticket.revoked] }
+        eventId: { type: string, minLength: 1 }
+        ticketId: { type: string, minLength: 1 }
+        subjectId:
+          type: string
+          description: 선택적 partner 가명 ID. production에서는 keyed HMAC만 저장
+        occurredAt: { type: string, format: date-time }
+    TicketProviderEventResult:
+      type: object
+      required: [provider, providerEventId, type, occurredAt, receivedAt, deduplicated]
+      properties:
+        provider: { type: string }
+        providerEventId: { type: string }
+        type: { enum: [ticket.checked_in, ticket.revoked] }
+        occurredAt: { type: string, format: date-time }
+        receivedAt: { type: string, format: date-time }
+        deduplicated: { type: boolean }
+        ticket:
+          type: object
+          additionalProperties: true
+    DataDeletionReceipt:
+      type: object
+      required: [receiptId, completedAt, scope, ticketsDeleted, sessionsDeleted, dispatchLogsDeleted]
+      properties:
+        receiptId: { type: string, format: uuid }
+        completedAt: { type: string, format: date-time }
+        scope: { enum: [ticket, subject] }
+        ticketsDeleted: { type: integer, minimum: 1 }
+        sessionsDeleted: { type: integer, minimum: 1 }
+        dispatchLogsDeleted: { type: integer, minimum: 0 }
+    DataPolicy:
+      type: object
+      required: [version, accountMode, rules]
+      properties:
+        version: { type: string }
+        accountMode: { const: ticket-scoped-pseudonymous }
+        rules:
+          type: array
+          items:
+            type: object
+            required: [data, storage, retention, deletion]
+            properties:
+              data: { type: string }
+              storage: { type: string }
+              retention: { type: string }
+              deletion: { type: string }
+    RetentionReport:
+      type: object
+      required: [mode, asOf, operationalCutoff, deletionReceiptCutoff, items]
+      properties:
+        mode: { enum: [preview, execute] }
+        asOf: { type: string, format: date-time }
+        operationalCutoff: { type: string, format: date-time }
+        deletionReceiptCutoff: { type: string, format: date-time }
+        items:
+          type: object
+          required: [providerEvents, sessions, dispatchLogs, tickets, deletionReceipts]
+          properties:
+            providerEvents: { type: integer }
+            sessions: { type: integer }
+            dispatchLogs: { type: integer }
+            tickets: { type: integer }
+            deletionReceipts: { type: integer }
+    DispatchLogInput:
+      type: object
+      required: [route, accepted, rendererName, availability, documentId, priority]
+      properties:
+        eventId: { type: string }
+        clientRecordId:
+          type: string
+          maxLength: 300
+          description: 앱 재시도 중복 방지를 위한 공연 내 안정 식별자
+        route: { enum: [PrimaryToolkit, MockDevice, FallbackPreview] }
+        accepted: { type: boolean }
+        rendererName: { type: string, minLength: 1 }
+        availability: { enum: [Ready, WaitingForOfficialSdk, Unsupported] }
+        documentId: { type: string, minLength: 1 }
+        priority: { enum: [Low, Normal, High] }
+        errorCode: { type: string }
+        metadata: { type: object, additionalProperties: true }
+    DispatchLog:
+      allOf:
+        - $ref: "#/components/schemas/DispatchLogInput"
+        - type: object
+          required: [id, eventId, sessionId, occurredAt]
+          properties:
+            id: { type: string, format: uuid }
+            eventId: { type: string }
+            sessionId: { type: string, format: uuid }
+            occurredAt: { type: string, format: date-time }
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details:
+              type: array
+              items:
+                type: object
+                required: [path, message]
+                properties:
+                  path: { type: string }
+                  message: { type: string }

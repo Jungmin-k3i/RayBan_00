@@ -1,5 +1,7 @@
 package com.k3i.lumencue
 
+import java.util.UUID
+
 enum class GlassesRendererAvailability {
     Ready,
     WaitingForOfficialSdk,
@@ -29,7 +31,6 @@ data class GlassesIntegrationProfile(
 ) {
     val primaryRenderer: GlassesHudRenderer
         get() = mockDeviceRenderer
-            ?.takeIf { it.status.availability == GlassesRendererAvailability.Ready }
             ?: renderers.first { it is MetaWearablesToolkitHudRenderer }
 
     val mockDeviceRenderer: GlassesHudRenderer?
@@ -85,7 +86,9 @@ data class GlassesDispatchRecord(
     val availability: GlassesRendererAvailability,
     val documentId: String,
     val textKo: String,
-    val priority: HudPriority
+    val priority: HudPriority,
+    val eventId: String? = null,
+    val clientRecordId: String = UUID.randomUUID().toString()
 )
 
 data class GlassesDispatchReport(
@@ -188,11 +191,12 @@ class SmartphonePreviewHudRenderer : GlassesHudRenderer {
         )
 }
 
-class MetaWearablesToolkitHudRenderer : GlassesHudRenderer {
+class MetaWearablesToolkitHudRenderer(
     override val status: GlassesRendererStatus = GlassesRendererStatus(
         availability = GlassesRendererAvailability.WaitingForOfficialSdk,
-        message = "Meta Wearables Device Access Toolkit SDK 접근 및 승인 대기"
+        message = "설정 > 기술 설정에서 실제 안경을 연결하세요"
     )
+) : GlassesHudRenderer {
 
     override fun render(instruction: HudRenderInstruction): GlassesRenderResult =
         GlassesRenderResult(
@@ -207,30 +211,24 @@ class MetaWearablesToolkitHudRenderer : GlassesHudRenderer {
 }
 
 class MetaWearablesMockDeviceHudRenderer(
-    private val sdkArtifactDeclared: Boolean = true,
-    private val packageTokenConfigured: Boolean = true
+    private val runtimeState: MetaWearablesMockDeviceRuntimeState =
+        MetaWearablesMockDeviceRuntimeState.notInitialized()
 ) : GlassesHudRenderer {
     override val status: GlassesRendererStatus = GlassesRendererStatus(
-        availability = if (sdkArtifactDeclared && packageTokenConfigured) {
-            GlassesRendererAvailability.Ready
-        } else {
-            GlassesRendererAvailability.WaitingForOfficialSdk
-        },
-        message = when {
-            sdkArtifactDeclared && packageTokenConfigured ->
-                "DAT MockDeviceKit으로 에뮬레이터 payload 검증 준비 완료"
-
-            sdkArtifactDeclared ->
-                "mwdat-mockdevice artifact 선언 완료, GitHub Packages 토큰 설정 필요"
-
-            else ->
-                "mwdat-mockdevice artifact 선언 필요"
+        availability = when (runtimeState.phase) {
+            MetaWearablesMockDevicePhase.SessionStarted -> GlassesRendererAvailability.Ready
+            MetaWearablesMockDevicePhase.DisplayUnsupported,
+            MetaWearablesMockDevicePhase.Failed -> GlassesRendererAvailability.Unsupported
+            MetaWearablesMockDevicePhase.NotInitialized,
+            MetaWearablesMockDevicePhase.Initializing -> GlassesRendererAvailability.WaitingForOfficialSdk
         }
+        ,
+        message = runtimeState.message
     )
 
     override fun render(instruction: HudRenderInstruction): GlassesRenderResult =
         GlassesRenderResult(
-            accepted = status.availability == GlassesRendererAvailability.Ready,
+            accepted = runtimeState.sessionStarted && runtimeState.displayCapable,
             rendererName = "MetaWearablesMockDeviceHudRenderer",
             status = status,
             instruction = instruction
@@ -244,9 +242,11 @@ fun dispatchHudToGlasses(
     instruction: HudRenderInstruction,
     profile: GlassesIntegrationProfile,
     previousRecords: List<GlassesDispatchRecord> = emptyList(),
-    maxRecords: Int = 6
+    maxRecords: Int = 6,
+    eventId: String? = null,
+    confirmedPrimaryResult: GlassesRenderResult? = null
 ): GlassesDispatchReport {
-    val primaryResult = profile.primaryRenderer.render(instruction)
+    val primaryResult = confirmedPrimaryResult ?: profile.primaryRenderer.render(instruction)
     val fallbackResult = if (primaryResult.accepted) {
         null
     } else {
@@ -271,7 +271,8 @@ fun dispatchHudToGlasses(
         availability = selectedResult.status.availability,
         documentId = document.documentId,
         textKo = instruction.textKo,
-        priority = instruction.priority
+        priority = instruction.priority,
+        eventId = eventId
     )
 
     return GlassesDispatchReport(
@@ -333,15 +334,21 @@ fun HudRenderInstruction.toFallbackDeliveryPlan(
     )
 }
 
-fun defaultGlassesRenderers(): List<GlassesHudRenderer> =
+fun defaultGlassesRenderers(
+    mockDeviceRuntimeState: MetaWearablesMockDeviceRuntimeState =
+        MetaWearablesMockDeviceRuntimeState.notInitialized()
+): List<GlassesHudRenderer> =
     listOf(
         SmartphonePreviewHudRenderer(),
         MetaWearablesToolkitHudRenderer(),
-        MetaWearablesMockDeviceHudRenderer()
+        MetaWearablesMockDeviceHudRenderer(mockDeviceRuntimeState)
     )
 
-fun defaultGlassesIntegrationProfile(): GlassesIntegrationProfile =
+fun defaultGlassesIntegrationProfile(
+    mockDeviceRuntimeState: MetaWearablesMockDeviceRuntimeState =
+        MetaWearablesMockDeviceRuntimeState.notInitialized()
+): GlassesIntegrationProfile =
     GlassesIntegrationProfile(
         targetDevice = TargetGlassesDevice.RayBanDisplay,
-        renderers = defaultGlassesRenderers()
+        renderers = defaultGlassesRenderers(mockDeviceRuntimeState)
     )
